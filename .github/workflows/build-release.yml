@@ -46,19 +46,20 @@ jobs:
           echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
-      - name: Make build.ps1 executable
+      - name: Give execute permission to build.ps1
         shell: bash
         run: chmod +x ./build.ps1
 
       - name: Build signed APK
         shell: pwsh
         env:
-          LOCALAPPDATA: $env:HOME/.local/share
           ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
           ANDROID_PLATFORM: android-31
           APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
           APP_VERSION_NAME: ${{ steps.version.outputs.version_name }}
-        run: ./build.ps1
+        run: |
+          $env:LOCALAPPDATA = "$HOME/.local/share"
+          ./build.ps1
 
       - name: Generate release metadata
         shell: bash
