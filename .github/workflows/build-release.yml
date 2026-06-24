@@ -59,7 +59,6 @@ jobs:
           APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
           APP_VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
-          # 统一SDK环境变量，避免旧E盘路径残留
           $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
           Write-Host "SDK Path: $env:ANDROID_SDK_ROOT"
           .\build.ps1
@@ -122,7 +121,7 @@ jobs:
               "force": False,
               "changelog": items,
               "changelogText": release_changelog,
-              "commit": os.environ["GITHUB_SHA"],
+              "commit": os.environ['GITHUB_SHA'],
               "builtAt": built_at,
               "assetName": f"amap-companion-{os.environ['SHORT_SHA']}.apk"
           }
