@@ -37,8 +37,10 @@ jobs:
         shell: pwsh
         run: |
           $short_sha = $env:GITHUB_SHA.Substring(0,7)
-          $version_code = [Math]::Floor((Get-Date -Utc).ToUniversalTime() - (Get-Date "1970-01-01")).TotalSeconds
-          $version_name = (Get-Date -Utc -Format "yyyyMMdd") + "-$short_sha"
+          $nowUtc = (Get-Date).ToUniversalTime()
+          $epoch = Get-Date "1970-01-01"
+          $version_code = [Math]::Floor(($nowUtc - $epoch).TotalSeconds)
+          $version_name = $nowUtc.ToString("yyyyMMdd") + "-$short_sha"
           echo "SHORT_SHA=$short_sha" >> $env:GITHUB_ENV
           echo "APP_VERSION_CODE=$version_code" >> $env:GITHUB_ENV
           echo "APP_VERSION_NAME=$version_name" >> $env:GITHUB_ENV
