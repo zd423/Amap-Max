@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository
@@ -29,26 +29,22 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android build tools
-        shell: bash
+        shell: pwsh
         run: sdkmanager "platforms;android-31" "build-tools;34.0.0"
 
       - name: Prepare version
         id: version
-        shell: bash
+        shell: pwsh
         run: |
-          short_sha="${GITHUB_SHA::7}"
-          version_code="$(date -u +%s)"
-          version_name="$(date -u +%Y%m%d)-${short_sha}"
-          echo "SHORT_SHA=${short_sha}" >> "$GITHUB_ENV"
-          echo "APP_VERSION_CODE=${version_code}" >> "$GITHUB_ENV"
-          echo "APP_VERSION_NAME=${version_name}" >> "$GITHUB_ENV"
-          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
-          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
-
-      - name: Give execute permission to build.ps1
-        shell: bash
-        run: chmod +x ./build.ps1
+          $short_sha = $env:GITHUB_SHA.Substring(0,7)
+          $version_code = [Math]::Floor((Get-Date -Utc).ToUniversalTime() - (Get-Date "1970-01-01")).TotalSeconds
+          $version_name = (Get-Date -Utc -Format "yyyyMMdd") + "-$short_sha"
+          echo "SHORT_SHA=$short_sha" >> $env:GITHUB_ENV
+          echo "APP_VERSION_CODE=$version_code" >> $env:GITHUB_ENV
+          echo "APP_VERSION_NAME=$version_name" >> $env:GITHUB_ENV
+          echo "version_code=$version_code" >> $env:GITHUB_OUTPUT
+          echo "version_name=$version_name" >> $env:GITHUB_OUTPUT
+          echo "short_sha=$short_sha" >> $env:GITHUB_OUTPUT
 
       - name: Build signed APK
         shell: pwsh
@@ -57,12 +53,10 @@ jobs:
           ANDROID_PLATFORM: android-31
           APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
           APP_VERSION_NAME: ${{ steps.version.outputs.version_name }}
-        run: |
-          $env:LOCALAPPDATA = "$HOME/.local/share"
-          ./build.ps1
+        run: .\build.ps1
 
       - name: Generate release metadata
-        shell: bash
+        shell: pwsh
         run: |
           python3 - <<'PY'
           import json
@@ -137,15 +131,15 @@ jobs:
 
       - name: Publish GitHub Release
         if: github.ref == 'refs/heads/master'
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="apk-${APP_VERSION_CODE}-${SHORT_SHA}"
-          apk_name="amap-companion-${SHORT_SHA}.apk"
-          cp amap_companion_signed.apk "$apk_name"
-          gh release create "$tag" "$apk_name" release-update.json release/CHANGELOG.md \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "AMap Companion ${APP_VERSION_NAME}" \
+          $tag = "apk-$env:APP_VERSION_CODE-$env:SHORT_SHA"
+          $apk_name = "amap-companion-$env:SHORT_SHA.apk"
+          Copy-Item amap_companion_signed.apk $apk_name
+          gh release create $tag $apk_name release-update.json release/CHANGELOG.md `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --target $env:GITHUB_SHA `
+            --title "AMap Companion $env:APP_VERSION_NAME" `
             --notes-file release/CHANGELOG.md
