@@ -46,9 +46,14 @@ jobs:
           echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
+      - name: Make build.ps1 executable
+        shell: bash
+        run: chmod +x ./build.ps1
+
       - name: Build signed APK
         shell: pwsh
         env:
+          LOCALAPPDATA: $env:HOME/.local/share
           ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
           ANDROID_PLATFORM: android-31
           APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
@@ -108,8 +113,8 @@ jobs:
           built_at = subprocess.check_output(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], text=True).strip()
           data = {
               "packageName": "com.autonavi.companion",
-              "versionCode": int(os.environ["APP_VERSION_CODE"]),
-              "versionName": os.environ["APP_VERSION_NAME"],
+              "versionCode": int(os.environ['APP_VERSION_CODE']),
+              "versionName": os.environ['APP_VERSION_NAME'],
               "force": False,
               "changelog": items,
               "changelogText": release_changelog,
