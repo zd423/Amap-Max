@@ -35,7 +35,8 @@ public final class AppPrefs {
     public static final String KEY_SHOW_TURN                    = "show_turn";
     public static final String KEY_SHOW_LANE                    = "show_lane";
     public static final String KEY_SHOW_LIGHT                   = "show_light";
-    public static final String KEY_LIGHT_VERTICAL               = "light_vertical";
+    public static final String KEY_LIGHT_VERTICAL_CLUSTER          = "light_vertical_cluster";
+    public static final String KEY_LIGHT_VERTICAL_MAIN             = "light_vertical_main";
     public static final String KEY_SHOW_LIGHT_DIRECTION         = "show_light_direction";
     public static final String KEY_SHOW_SERVICE_AREA            = "show_service_area";
     public static final String KEY_SHOW_ETA                     = "show_eta";
@@ -68,10 +69,6 @@ public final class AppPrefs {
     public static final String DEFAULT_TARGET_PACKAGE           = "com.autonavi.amapauto";
     public static final String TEXT_MODE_LIGHT                  = "light";
     public static final String TEXT_MODE_AUTO                   = "auto";
-    public static final String OVERLAY_UI_OLD                   = OverlayUiStyles.OLD;
-    public static final String OVERLAY_UI_NEW                   = OverlayUiStyles.NEW;
-    public static final String OVERLAY_UI_DYNAMIC_ISLAND        = OverlayUiStyles.DYNAMIC_ISLAND_FULL;
-    public static final String OVERLAY_UI_DYNAMIC_ISLAND_TEST   = OverlayUiStyles.DYNAMIC_ISLAND_TEST;
     public static final String OVERLAY_UI_CARD                  = OverlayUiStyles.CARD;
 
     // ── Scale / opacity bounds ───────────────────────────────────────────
@@ -203,9 +200,14 @@ public final class AppPrefs {
                 .getBoolean(KEY_SHOW_LIGHT, true);
     }
 
-    public static boolean isLightVertical(Context context) {
+    public static boolean isLightVerticalMain(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_LIGHT_VERTICAL, true);
+                .getBoolean(KEY_LIGHT_VERTICAL_MAIN, true);
+    }
+
+    public static boolean isLightVerticalCluster(Context context) {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_LIGHT_VERTICAL_CLUSTER, true);
     }
 
     public static boolean isLightDirectionVisible(Context context) {
@@ -254,11 +256,11 @@ public final class AppPrefs {
     }
 
     public static boolean isDynamicIslandUiEnabled(Context context) {
-        return OVERLAY_UI_DYNAMIC_ISLAND.equals(getOverlayUiStyle(context));
+        return false;
     }
 
     public static boolean isDynamicIslandTestUiEnabled(Context context) {
-        return OVERLAY_UI_DYNAMIC_ISLAND_TEST.equals(getOverlayUiStyle(context));
+        return false;
     }
 
     public static boolean usesDarkTextPalette(Context context) {
@@ -284,7 +286,7 @@ public final class AppPrefs {
 
     public static String getOverlayUiStyle(Context context) {
         String style = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_OVERLAY_UI_STYLE, OVERLAY_UI_OLD);
+                .getString(KEY_OVERLAY_UI_STYLE, OverlayUiStyles.CARD);
         return OverlayUiStyles.normalize(style);
     }
 
@@ -301,7 +303,8 @@ public final class AppPrefs {
     static boolean isBehaviorEnabled(Context context, String key) {
         boolean defaultValue = KEY_AUTO_START_ENABLED.equals(key)
                 || KEY_START_SERVICE_ON_APP_OPEN.equals(key)
-                || KEY_LIGHT_VERTICAL.equals(key)
+                || KEY_LIGHT_VERTICAL_CLUSTER.equals(key)
+                || KEY_LIGHT_VERTICAL_MAIN.equals(key)
                 || KEY_OVERSPEED_MILD_WARNING.equals(key)
                 || KEY_OVERSPEED_MEDIUM_WARNING.equals(key);
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(key, defaultValue);

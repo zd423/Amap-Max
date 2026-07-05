@@ -7,8 +7,11 @@ import android.app.AppOpsManager;
 // import android.content.ClipData;      [REMOVED 2026-06-23]
 // import android.content.ClipboardManager; [REMOVED 2026-06-23]
 import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.os.IBinder;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -94,6 +97,22 @@ public class MainActivity extends Activity {
         redirectDesktopLaunchToTarget(intent);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // If service was killed externally, restart it if any overlay should be active
+        if (AppPrefs.isClusterMirrorEnabled(this) || AppPrefs.isMainOverlayEnabled(this)) {
+            if (!isServiceRunning(OverlayService.class)) {
+                startOverlayService();
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+    }
+
     private void autoStartServiceOnAppOpen() {
         if (!AppPrefs.isStartServiceOnAppOpenEnabled(this)) {
             return;
@@ -116,20 +135,59 @@ public class MainActivity extends Activity {
         root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("AMap Companion");
+        title.setText("AMap Max");
         title.setTextSize(28f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(Color.WHITE);
+        title.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.adayo.app.factorymode",
+                    "com.adayo.app.factorymode.MainActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Throwable t) {
+                try {
+                    // fallback: launch by package name
+                    startActivity(getPackageManager().getLaunchIntentForPackage("com.adayo.app.factorymode"));
+                } catch (Throwable t2) {
+                    android.util.Log.e("MainActivity", "Failed to launch factorymode", t2);
+                }
+            }
+        });
         hero.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
+        // [MODIFIED] 2026-06-25 目标应用和包名合并一行，双色显示
         targetText = new TextView(this);
         targetText.setTextSize(14f);
-        targetText.setTextColor(0xFFD1D5DB);
-        targetText.setLineSpacing(dp(2), 1.0f);
-        LinearLayout.LayoutParams targetLp = new LinearLayout.LayoutParams(-1, -2);
-        targetLp.setMargins(0, dp(8), 0, 0);
-        hero.addView(targetText, targetLp);
+        LinearLayout.LayoutParams targetTextLp = new LinearLayout.LayoutParams(-1, -2);
+        targetTextLp.setMargins(0, dp(8), 0, 0);
+        hero.addView(targetText, targetTextLp);
         updateTargetText();
+
+        // [ADDED] 2026-06-24 编译时间版本号
+        LinearLayout versionRow = new LinearLayout(this);
+        versionRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        TextView versionText = new TextView(this);
+        versionText.setTextSize(14f);
+        versionText.setTextColor(0xFFEF4444);
+        versionText.setText("Build: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(new java.util.Date()));
+        versionRow.addView(versionText, new LinearLayout.LayoutParams(-2, -2));
+
+        TextView authorText = new TextView(this);
+        authorText.setTextSize(14f);
+        authorText.setTextColor(0xFFEF4444);
+        int padLeft = dp(8);
+        authorText.setPadding(padLeft, 0, 0, 0);
+        authorText.setText("by zd423");
+        versionRow.addView(authorText, new LinearLayout.LayoutParams(-2, -2));
+
+        LinearLayout.LayoutParams versionLp = new LinearLayout.LayoutParams(-1, -2);
+        versionLp.setMargins(0, dp(8), 0, 0);
+        hero.addView(versionRow, versionLp);
 
         // [REMOVED] 2026-06-13 公告区块（空白色卡片）已删除
         // addAnnouncementSection(root);
@@ -246,6 +304,9 @@ public class MainActivity extends Activity {
     // [MODIFIED] 2026-06-23 实时生效 + 防抖，去掉应用按钮
     private final Handler overlayScaleDebouncer = new Handler(Looper.getMainLooper());
     private static final long OVERLAY_SCALE_DEBOUNCE_MS = 150;
+    // [ADDED] 2026-06-24 副屏滑块防抖，与主屏保持一致
+    private final Handler clusterScaleDebouncer = new Handler(Looper.getMainLooper());
+    private static final long CLUSTER_SCALE_DEBOUNCE_MS = 150;
 
     private void addScaleControls(LinearLayout parent) {
         // 圆角边框卡片
@@ -329,17 +390,20 @@ public class MainActivity extends Activity {
                 updateClusterScaleText(percent);
                 if (fromUser) {
                     saveClusterScalePercent(percent);
-                    notifyClusterMirrorChanged();
+                    clusterScaleDebouncer.removeCallbacksAndMessages(null);
+                    clusterScaleDebouncer.postDelayed(() -> notifyClusterMirrorChanged(), CLUSTER_SCALE_DEBOUNCE_MS);
                 }
             }
             @Override
             public void onStartTrackingTouch(SeekBar bar) {
+                clusterScaleDebouncer.removeCallbacksAndMessages(null);
             }
             @Override
             public void onStopTrackingTouch(SeekBar bar) {
                 int percent = AppPrefs.MIN_OVERLAY_SCALE_PERCENT + bar.getProgress();
                 saveClusterScalePercent(percent);
                 updateClusterScaleText(percent);
+                clusterScaleDebouncer.removeCallbacksAndMessages(null);
                 notifyClusterMirrorChanged();
             }
         });
@@ -415,28 +479,28 @@ public class MainActivity extends Activity {
         int centerY = containerHeight / 2;
 
         // 上（箭头向上，index=1）- 圆心在顶部
-        android.widget.ImageView btnUp = directionButton(1, () -> moveClusterBy(0, -dp(2)), btnSize);
+        android.widget.ImageView btnUp = directionButton(1, () -> moveClusterBy(0, -dp(2)), () -> moveClusterBy(0, -dp(10)), btnSize);
         FrameLayout.LayoutParams lpUp = new FrameLayout.LayoutParams(btnSize, btnSize);
         lpUp.leftMargin = centerX - btnSize / 2;
         lpUp.topMargin = centerY - bigRadius - btnSize / 2;
         circleContainer.addView(btnUp, lpUp);
 
         // 下（箭头向下，index=3）- 圆心在底部
-        android.widget.ImageView btnDown = directionButton(3, () -> moveClusterBy(0, dp(2)), btnSize);
+        android.widget.ImageView btnDown = directionButton(3, () -> moveClusterBy(0, dp(2)), () -> moveClusterBy(0, dp(10)), btnSize);
         FrameLayout.LayoutParams lpDown = new FrameLayout.LayoutParams(btnSize, btnSize);
         lpDown.leftMargin = centerX - btnSize / 2;
         lpDown.topMargin = centerY + bigRadius - btnSize / 2;
         circleContainer.addView(btnDown, lpDown);
 
         // 左（箭头向左，index=0）- 圆心在左侧
-        android.widget.ImageView btnLeft = directionButton(0, () -> moveClusterBy(-dp(2), 0), btnSize);
+        android.widget.ImageView btnLeft = directionButton(0, () -> moveClusterBy(-dp(2), 0), () -> moveClusterBy(-dp(10), 0), btnSize);
         FrameLayout.LayoutParams lpLeft = new FrameLayout.LayoutParams(btnSize, btnSize);
         lpLeft.leftMargin = centerX - bigRadius - btnSize / 2;
         lpLeft.topMargin = centerY - btnSize / 2;
         circleContainer.addView(btnLeft, lpLeft);
 
         // 右（箭头向右，index=2）- 圆心在右侧
-        android.widget.ImageView btnRight = directionButton(2, () -> moveClusterBy(dp(2), 0), btnSize);
+        android.widget.ImageView btnRight = directionButton(2, () -> moveClusterBy(dp(2), 0), () -> moveClusterBy(dp(10), 0), btnSize);
         FrameLayout.LayoutParams lpRight = new FrameLayout.LayoutParams(btnSize, btnSize);
         lpRight.leftMargin = centerX + bigRadius - btnSize / 2;
         lpRight.topMargin = centerY - btnSize / 2;
@@ -587,7 +651,7 @@ public class MainActivity extends Activity {
         overlayUiStyleButton.setLayoutParams(uiStyleLp);
         card.addView(overlayUiStyleButton);
 
-        overlayTextModeButton = button(textModeButtonText(), v -> chooseTextMode(), 0xFF60A5FA);
+        overlayTextModeButton = button(textModeButtonText(), v -> chooseTextMode(), 0xFF3B82F6);
         LinearLayout.LayoutParams buttonLp = new LinearLayout.LayoutParams(-1, dp(42));
         buttonLp.setMargins(0, dp(10), 0, 0);
         overlayTextModeButton.setLayoutParams(buttonLp);
@@ -634,8 +698,8 @@ public class MainActivity extends Activity {
                     behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND),
                     behaviorToggle("导航/巡航退出隐藏仪表", AppPrefs.KEY_HIDE_CLUSTER_WHEN_INACTIVE));
             addTogglePair(grid,
-                    behaviorToggle("红绿灯竖向排列", AppPrefs.KEY_LIGHT_VERTICAL),
-                    null);
+                    directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER),
+                    directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN));
         } else {
             grid.addView(behaviorToggle("开机或亮屏自动启动服务", AppPrefs.KEY_AUTO_START_ENABLED));
             grid.addView(behaviorToggle("进入软件后自动启动服务", AppPrefs.KEY_START_SERVICE_ON_APP_OPEN));
@@ -643,7 +707,8 @@ public class MainActivity extends Activity {
             grid.addView(behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
             grid.addView(behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND));
             grid.addView(behaviorToggle("导航/巡航退出隐藏仪表", AppPrefs.KEY_HIDE_CLUSTER_WHEN_INACTIVE));
-            grid.addView(behaviorToggle("红绿灯竖向排列", AppPrefs.KEY_LIGHT_VERTICAL));
+            grid.addView(directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER));
+            grid.addView(directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN));
         }
 
         addOverspeedBehaviorControls(grid);
@@ -655,7 +720,7 @@ public class MainActivity extends Activity {
 
     private void addOverspeedBehaviorControls(LinearLayout grid) {
         CheckBox mild = behaviorToggle("\u666e\u901a\u8d85\u901f\u8fb9\u6846\u63d0\u9192", AppPrefs.KEY_OVERSPEED_MILD_WARNING);
-        CheckBox medium = behaviorToggle("\u8d85\u901f10%\u8fb9\u6846\u63d0\u9192", AppPrefs.KEY_OVERSPEED_MEDIUM_WARNING);
+        CheckBox medium = behaviorToggle("\u8d85\u901f10%\u53ca\u4ee5\u4e0a\u8fb9\u6846\u63d0\u9192", AppPrefs.KEY_OVERSPEED_MEDIUM_WARNING);
         if (isWideLayout()) {
             addTogglePair(grid, mild, medium);
         } else {
@@ -732,14 +797,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    // [MODIFIED] 2026-06-23 增大尺寸和间距，增加长按快速移动
-    private android.widget.ImageView directionButton(int arrowDir, Runnable normalMove) {
-        return directionButton(arrowDir, normalMove, dp(64));
-    }
-
-    private android.widget.ImageView directionButton(int arrowDir, Runnable normalMove, int btnSize) {
+    // [MODIFIED] 2026-07-01 使用 PNG 箭头素材（统一向上箭头旋转四向），取代 ArrowDrawable 三角形
+    private android.widget.ImageView directionButton(int arrowDir, Runnable clickMove, Runnable longMove, int btnSize) {
         android.widget.ImageView iv = new android.widget.ImageView(this);
-        iv.setImageDrawable(new ArrowDrawable(0xFFFFFFFF, arrowDir));
+        // 统一使用向上的箭头 PNG，通过旋转得到四向（0=左 270°, 1=上 0°, 2=右 90°, 3=下 180°）
+        iv.setImageResource(R.drawable.light_green_arrow_straight);
+        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        float rot = 0f;
+        if (arrowDir == 0) rot = -90f;   // 左
+        else if (arrowDir == 2) rot = 90f; // 右
+        else if (arrowDir == 3) rot = 180f; // 下
+        iv.setRotation(rot);
         iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
         int pad = btnSize / 5;
         iv.setPadding(pad, pad, pad, pad);
@@ -756,16 +824,16 @@ public class MainActivity extends Activity {
         states.addState(new int[]{}, bg);
         iv.setBackground(states);
 
-        // 单击：普通移动
-        iv.setOnClickListener(v -> normalMove.run());
+        // 单击：小步移动 (2dp)
+        iv.setOnClickListener(v -> clickMove.run());
 
-        // 长按：每 80ms 快速移动一次，松手停止
+        // 长按：每 80ms 快速移动一次 (10dp)，松手停止
         final Handler fastHandler = new Handler(Looper.getMainLooper());
         final Runnable[] fastTicker = { null };
         iv.setOnLongClickListener(v -> {
-            normalMove.run();
+            longMove.run();
             fastTicker[0] = () -> {
-                normalMove.run();
+                longMove.run();
                 fastHandler.postDelayed(fastTicker[0], 80);
             };
             fastHandler.postDelayed(fastTicker[0], 100);
@@ -1046,9 +1114,12 @@ public class MainActivity extends Activity {
     }
 
     private void openTargetApp() {
-        Intent launch = getPackageManager().getLaunchIntentForPackage(AppPrefs.getTargetPackage(this));
+        String pkg = AppPrefs.getTargetPackage(this);
+        Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
         if (launch != null) {
             startActivity(launch);
+        } else {
+            Toast.makeText(this, "\u65e0\u6cd5\u542f\u52a8\uff1a" + pkg + "\uff08\u672a\u5b89\u88c5\u6216\u65e0\u542f\u52a8\u9875\uff09", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1171,7 +1242,13 @@ public class MainActivity extends Activity {
 
     private void updateTargetText() {
         if (targetText != null) {
-            targetText.setText("\u76ee\u6807\u5e94\u7528\n" + AppPrefs.getTargetPackage(this));
+            String label = "\u76ee\u6807\u5e94\u7528 ";
+            String pkg = AppPrefs.getTargetPackage(this);
+            android.text.SpannableStringBuilder ssb = new android.text.SpannableStringBuilder(label + pkg);
+            ssb.setSpan(new android.text.style.ForegroundColorSpan(0xFFD1D5DB), 0, label.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new android.text.style.ForegroundColorSpan(0xFF3B82F6), label.length(), label.length() + pkg.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new android.text.style.RelativeSizeSpan(17f / 14f), label.length(), label.length() + pkg.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            targetText.setText(ssb);
         }
     }
 
@@ -1205,11 +1282,28 @@ public class MainActivity extends Activity {
             checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
         }
         checkBox.setPadding(0, dp(2), 0, dp(2));
+        checkBox.setTag(key);
         checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
             saveOverlayContentEnabled(key, isChecked);
             notifyOverlayContentChanged();
         });
         return checkBox;
+    }
+
+    private CheckBox directionToggle(String prefix, String key) {
+        CheckBox checkBox = behaviorToggle("check_placeholder", key);
+        checkBox.setText(getDirectionToggleText(prefix, key, AppPrefs.isBehaviorEnabled(this, key)));
+        checkBox.setOnCheckedChangeListener(null);
+        checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            saveBehaviorEnabled(key, isChecked);
+            checkBox.setText(getDirectionToggleText(prefix, key, isChecked));
+            notifyDisplayPolicyChanged();
+        });
+        return checkBox;
+    }
+
+    private String getDirectionToggleText(String prefix, String key, boolean isVertical) {
+        return prefix + "-红绿灯" + (isVertical ? "竖向模式中" : "横向模式中");
     }
 
     private CheckBox behaviorToggle(String text, String key) {
@@ -1222,6 +1316,7 @@ public class MainActivity extends Activity {
             checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
         }
         checkBox.setPadding(0, dp(2), 0, dp(2));
+        checkBox.setTag(key);
         checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
             saveBehaviorEnabled(key, isChecked);
             if (AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND.equals(key)
@@ -1230,10 +1325,9 @@ public class MainActivity extends Activity {
                 openUsageAccessSettings();
             }
             if (isChecked) {
-                if (AppPrefs.KEY_START_SERVICE_ON_APP_OPEN.equals(key)) {
+                if (AppPrefs.KEY_START_SERVICE_ON_APP_OPEN.equals(key)
+                        || AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND.equals(key)) {
                     startCompanionService(false);
-                } else {
-                    startOverlayService();
                 }
             }
             notifyDisplayPolicyChanged();
@@ -1256,6 +1350,7 @@ public class MainActivity extends Activity {
             checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
         }
         checkBox.setPadding(0, dp(2), 0, dp(2));
+        checkBox.setTag(key);
         checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (AppPrefs.KEY_CLUSTER_MIRROR_ENABLED.equals(key)) {
                 saveClusterMirrorEnabled(isChecked);
@@ -1270,7 +1365,10 @@ public class MainActivity extends Activity {
                 }
                 notifyMainOverlayChanged();
             }
-            stopServiceIfNoVisuals();
+            notifyDisplayPolicyChanged();
+            if (!isChecked) {
+                stopServiceIfNoVisuals();
+            }
         });
         return checkBox;
     }
@@ -1431,6 +1529,18 @@ public class MainActivity extends Activity {
         sendDirectIntent(OverlayService.ACTION_REBUILD_POLICY);
     }
 
+    private boolean isServiceRunning(Class<?> serviceClass) {
+        android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager != null) {
+            for (android.app.ActivityManager.RunningServiceInfo info : manager.getRunningServices(Integer.MAX_VALUE)) {
+                if (serviceClass.getName().equals(info.service.getClassName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void stopServiceIfNoVisuals() {
         if (!AppPrefs.isMainOverlayEnabled(this)
                 && !AppPrefs.isClusterMirrorEnabled(this)
@@ -1520,7 +1630,7 @@ public class MainActivity extends Activity {
         if (coordTextX == null) { return; }
         SharedPreferences prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
         int x = prefs.getInt(AppPrefs.KEY_CLUSTER_X, 600);
-        int y = prefs.getInt(AppPrefs.KEY_CLUSTER_Y, 182);
+        int y = prefs.getInt(AppPrefs.KEY_CLUSTER_Y, 180);
         coordTextX.setText("X: " + x);
         coordTextY.setText("Y: " + y);
     }
@@ -1528,7 +1638,7 @@ public class MainActivity extends Activity {
     private void moveClusterBy(int dx, int dy) {
         SharedPreferences prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
         int x = Math.max(0, prefs.getInt(AppPrefs.KEY_CLUSTER_X, 600) + dx);
-        int y = Math.max(0, prefs.getInt(AppPrefs.KEY_CLUSTER_Y, 182) + dy);
+        int y = Math.max(0, prefs.getInt(AppPrefs.KEY_CLUSTER_Y, 180) + dy);
         boolean saved = prefs.edit()
                 .putInt(AppPrefs.KEY_CLUSTER_X, x)
                 .putInt(AppPrefs.KEY_CLUSTER_Y, y)

@@ -38,7 +38,7 @@ $apksigner   = Join-Path $buildTools 'apksigner.bat'
 
 # APK output name
 $ts = Get-Date -Format "yy_MM_dd_HH_mm"
-$outApk = "C:\Users\zd423\.qclaw\workspace\AMap_$ts.apk"
+$outApk = "E:\AMap\AMap\package\AMap_$ts.apk"
 
 # ============================================================
 # Clean

@@ -637,15 +637,6 @@ public final class TrafficLightParser {
     }
 
     static int secondsForLight(int status, int red, int green) {
-        if (isGreenLightStatus(status)) {
-            return red > 0 ? red : green;
-        }
-        if (isRedLightStatus(status)) {
-            return red > 0 ? red : green;
-        }
-        if (isYellowLightStatus(status)) {
-            return red > 0 ? red : green;
-        }
         return red > 0 ? red : green;
     }
 
@@ -742,7 +733,7 @@ public final class TrafficLightParser {
         return dir;
     }
 
-    private static int turnIconToTrafficDir(int icon) {
+    public static int turnIconToTrafficDir(int icon) {
         if (icon == 2 || icon == 4 || icon == 6) {
             return AmapConstants.DIR_LEFT;
         }
