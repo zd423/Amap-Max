@@ -8,7 +8,7 @@
 $ErrorActionPreference = 'Stop'
 
 $env:JAVA_HOME    = 'D:\Env\jdk11'
-$env:ANDROID_HOME = 'E:\AMap\AMap\env\android-sdk'
+$env:ANDROID_HOME = 'D:\Env\android-sdk'
 $env:PATH = $env:JAVA_HOME + '\bin;' + $env:PATH
 $ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
@@ -26,11 +26,11 @@ $classesDir  = Join-Path $buildDir 'classes'
 $dexDir      = Join-Path $buildDir 'dex'
 $resDir      = Join-Path $root 'app\src\main\res'
 $manifest    = Join-Path $root 'app\src\main\AndroidManifest.xml'
-$keystore    = 'E:\AMap\AMap\env\keystore\ArcfoxS5.keystore'
+$keystore    = 'ArcfoxS5.keystore'
 $tmpDir      = Join-Path $env:LOCALAPPDATA 'Temp'
 
-$androidJar  = 'E:\AMap\AMap\env\android-sdk\platforms\android-31\android.jar'
-$buildTools  = 'E:\AMap\AMap\env\android-sdk\build-tools\34.0.0'
+$androidJar  = 'D:\Env\android-sdk\platforms\android-31\android.jar'
+$buildTools  = 'D:\Env\android-sdk\build-tools\34.0.0'
 $aapt        = Join-Path $buildTools 'aapt.exe'
 $d8          = Join-Path $buildTools 'd8.bat'
 $zipalign    = Join-Path $buildTools 'zipalign.exe'

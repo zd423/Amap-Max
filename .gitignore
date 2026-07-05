@@ -1,4 +1,4 @@
-﻿/bin/
+/bin/
 /gen/
 /obj/
 *.apk
@@ -10,3 +10,5 @@
 local.properties
 .gradle/
 build/
+env/
+amap/
