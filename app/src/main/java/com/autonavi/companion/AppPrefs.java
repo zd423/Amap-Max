@@ -248,9 +248,15 @@ public final class AppPrefs {
         return TEXT_MODE_FORCE_NIGHT.equals(getOverlayTextMode(context));
     }
 
-    /** Returns true if night mode is active (force night OR following system and system is night). */
+    /** Returns true unless force day; force night → true; follow system → system night flag. */
     public static boolean isNightMode(Context context) {
-        return isForceNightMode(context) || isSystemNightMode(context);
+        String mode = getOverlayTextMode(context);
+        // Force day → always daytime palette
+        if (TEXT_MODE_LIGHT.equals(mode)) return false;
+        // Force night → always night palette
+        if (TEXT_MODE_FORCE_NIGHT.equals(mode)) return true;
+        // Follow system
+        return isSystemNightMode(context);
     }
 
     /** Checks Android system UI mode (Configuration.UI_MODE_NIGHT_YES). */
