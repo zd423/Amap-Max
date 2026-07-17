@@ -23,7 +23,7 @@
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
-        android:label="Amap"
+        android:label="AMap Max"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme">

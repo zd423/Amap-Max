@@ -289,6 +289,7 @@ public class OverlayService extends Service {
         filter.addAction(AppPrefs.ACTION_OVERLAY_CONTENT_CHANGED);
         filter.addAction(AppPrefs.ACTION_OVERLAY_STYLE_CHANGED);
         filter.addAction(AppPrefs.ACTION_DISPLAY_POLICY_CHANGED);
+        filter.addAction(android.content.Intent.ACTION_CONFIGURATION_CHANGED);
         try {
             registerReceiver(receiver, filter);
         } catch (Throwable t) {
@@ -642,9 +643,8 @@ public class OverlayService extends Service {
         card.setPadding(padH, padTop, padH, padBottom);
         GradientDrawable bg = new GradientDrawable();
         int opacity = 0;
-        bg.setColor(withAlpha(0xFF111827, opacity));
+        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
         bg.setCornerRadius(scaledDp(12, scale));
-        bg.setStroke(scaledDp(1, scale), withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(opacity)));
         card.setBackground(bg);
 
         // Light row from XML (all layouts use same id: light_row)
@@ -965,6 +965,10 @@ public class OverlayService extends Service {
             stopSelfIfNoVisuals();
             return;
         }
+        if (android.content.Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
+            rebuildOverlay();
+            return;
+        }
         boolean targetBroadcastChanged = updateTargetBroadcastActivity(action);
         if (targetBroadcastChanged) {
             ensureOverlay();
@@ -1036,8 +1040,7 @@ public class OverlayService extends Service {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(14));
         int opacity = 0;
-        bg.setColor(withAlpha(0xFF111827, opacity));
-        bg.setStroke(dp(1), withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(opacity)));
+        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
 
@@ -1045,16 +1048,52 @@ public class OverlayService extends Service {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(clusterDp(14));
         int opacity = 0;
-        bg.setColor(withAlpha(0xFF111827, opacity));
-        bg.setStroke(clusterDp(1), withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(opacity)));
+        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
 
     private void applyTextPalette() {
         // Text palette removed in simplification
     }
+
+    /** Night mode: true = night palette, false = day palette. */
+    private boolean isNightMode() {
+        return AppPrefs.isNightMode(this);
+    }
+
+    /** Reduce traffic light and text brightness in night mode (~35% darker). */
+    private int nightDim(int color) {
+        if (!isNightMode()) return color;
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
+        r = (int) (r * 0.65f);
+        g = (int) (g * 0.65f);
+        b = (int) (b * 0.65f);
+        return (color & 0xFF000000) | (r << 16) | (g << 8) | b;
+    }
+
+    /** White text, dimmed in night mode. */
+    private int nightText() {
+        return nightDim(0xFFFFFFFF);
+    }
+
+    private int nightPaletteBg(int baseOpacity) {
+        return isNightMode()
+                ? AmapConstants.PALETTE_BG[1][0]   // dark night bg
+                : AmapConstants.PALETTE_BG[0][0];  // day bg
+    }
+
+    private int nightPaletteStroke(int baseWhiteAlpha) {
+        return isNightMode()
+                ? AmapConstants.PALETTE_STROKE[1][0]   // more transparent in night
+                : AmapConstants.PALETTE_STROKE[0][0];  // normal stroke
+    }
+
     private int primaryTextColor() {
-        return AppPrefs.usesDarkTextPalette(this) ? 0xFF0F172A : 0xFFE8EAED;
+        return isNightMode()
+                ? AmapConstants.PALETTE_PRIMARY_TEXT[1]   // white in night
+                : AppPrefs.usesDarkTextPalette(this) ? 0xFF0F172A : AmapConstants.PALETTE_PRIMARY_TEXT[0];
     }
 
     private int withAlpha(int color, int alphaPercent) {
@@ -1315,8 +1354,7 @@ public class OverlayService extends Service {
             FrameLayout circle = new FrameLayout(pill.getContext());
             GradientDrawable circleBg = new GradientDrawable();
             circleBg.setShape(GradientDrawable.OVAL);
-            circleBg.setColor(state.color);
-            circleBg.setStroke(scaledDp(2, scale), state.color);
+            circleBg.setColor(nightDim(state.color));
             circle.setBackground(circleBg);
             circle.setLayoutParams(new FrameLayout.LayoutParams(circleSize, circleSize));
             circle.setMinimumWidth(circleSize);
@@ -1333,7 +1371,7 @@ public class OverlayService extends Service {
             int textFixedW = scaledDp(30, scale);
             TextView timeText = new TextView(pill.getContext());
             timeText.setText(String.valueOf(seconds));
-            timeText.setTextColor(Color.WHITE);
+            timeText.setTextColor(nightText());
             timeText.setTypeface(Typeface.DEFAULT_BOLD);
             timeText.setGravity(Gravity.CENTER);
             timeText.setTextSize(scaledSp(18f, scale));
@@ -1361,8 +1399,7 @@ public class OverlayService extends Service {
         TextView timeText = (TextView) pill.getChildAt(1);
 
         GradientDrawable bg = (GradientDrawable) circle.getBackground();
-        bg.setColor(state.color);
-        bg.setStroke(scaledDp(2, scale), state.color);
+        bg.setColor(nightDim(state.color));
 
         circle.removeAllViews();
         boolean showArrowBadge = showDirectionLabel && state.dir >= 0;
@@ -1408,8 +1445,7 @@ public class OverlayService extends Service {
             FrameLayout circle = new FrameLayout(context);
             GradientDrawable circleBg = new GradientDrawable();
             circleBg.setShape(GradientDrawable.OVAL);
-            circleBg.setColor(state.color);
-            circleBg.setStroke(scaledDp(2, scale), state.color);
+            circleBg.setColor(nightDim(state.color));
             circle.setBackground(circleBg);
             circle.setMinimumWidth(circleSize);
             circle.setMinimumHeight(circleSize);
@@ -1427,7 +1463,7 @@ public class OverlayService extends Service {
             int textFixedW = scaledDp(30, scale);
             TextView timeText = new TextView(context);
             timeText.setText(String.valueOf(seconds));
-            timeText.setTextColor(Color.WHITE);
+            timeText.setTextColor(nightText());
             timeText.setTypeface(Typeface.DEFAULT_BOLD);
             timeText.setGravity(Gravity.CENTER);
             timeText.setIncludeFontPadding(false);
@@ -1665,16 +1701,32 @@ public class OverlayService extends Service {
 
     private void applyOverspeedBorder(int color) {
         if (panelBackground != null) {
-            panelBackground.setStroke(dp(1), color != 0 ? color : withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(0)));
+            if (color != 0) {
+                panelBackground.setStroke(dp(1), color);
+            } else {
+                panelBackground.setStroke(0, 0);
+            }
         } else if (panel != null && panel.getBackground() instanceof GradientDrawable) {
             panelBackground = (GradientDrawable) panel.getBackground();
-            panelBackground.setStroke(dp(1), color != 0 ? color : withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(0)));
+            if (color != 0) {
+                panelBackground.setStroke(dp(1), color);
+            } else {
+                panelBackground.setStroke(0, 0);
+            }
         }
         if (clusterPanelBackground != null) {
-            clusterPanelBackground.setStroke(clusterDp(1), color != 0 ? color : withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(0)));
+            if (color != 0) {
+                clusterPanelBackground.setStroke(clusterDp(1), color);
+            } else {
+                clusterPanelBackground.setStroke(0, 0);
+            }
         } else if (clusterPanel != null && clusterPanel.getBackground() instanceof GradientDrawable) {
             clusterPanelBackground = (GradientDrawable) clusterPanel.getBackground();
-            clusterPanelBackground.setStroke(clusterDp(1), color != 0 ? color : withAlpha(0xFFFFFFFF, AppPrefs.strokeOpacityForBackground(0)));
+            if (color != 0) {
+                clusterPanelBackground.setStroke(clusterDp(1), color);
+            } else {
+                clusterPanelBackground.setStroke(0, 0);
+            }
         }
     }
 

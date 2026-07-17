@@ -1396,9 +1396,10 @@ public class MainActivity extends Activity {
     }
 
     private String textModeButtonText() {
-        return AppPrefs.isAutoTextMode(this)
-                ? "\u6587\u5b57\u6a21\u5f0f\uff1a\u81ea\u52a8\u6a21\u5f0f"
-                : "\u6587\u5b57\u6a21\u5f0f\uff1a\u6d45\u8272\u6a21\u5f0f";
+        String mode = AppPrefs.getOverlayTextMode(this);
+        if (AppPrefs.TEXT_MODE_AUTO.equals(mode))      return "\u6587\u5b57\u6a21\u5f0f\uff1a\u8ddf\u968f\u7cfb\u7edf";
+        if (AppPrefs.TEXT_MODE_FORCE_NIGHT.equals(mode)) return "\u6587\u5b57\u6a21\u5f0f\uff1a\u5f3a\u5236\u591c\u95f4";
+        return "\u6587\u5b57\u6a21\u5f0f\uff1a\u5f3a\u5236\u767d\u5929";
     }
 
     private String overlayUiStyleButtonText() {
@@ -1423,14 +1424,23 @@ public class MainActivity extends Activity {
 
     private void chooseTextMode() {
         String[] labels = {
-                "\u81ea\u52a8\u6a21\u5f0f\uff08\u6839\u636e\u80cc\u666f\u900f\u660e\u5ea6\u81ea\u52a8\u66f4\u6539\u6587\u5b57\u989c\u8272\uff09",
-                "\u6d45\u8272\u6a21\u5f0f\uff08\u59cb\u7ec8\u4f7f\u7528\u6d45\u8272\u6587\u5b57\uff09"
+                "\u8ddf\u968f\u7cfb\u7edf\uff08\u7cfb\u7edf\u591c\u95f4\u6a21\u5f0f\u5373\u591c\u95f4\uff0c\u5426\u5219\u767d\u5929\uff09",
+                "\u5f3a\u5236\u767d\u5929",
+                "\u5f3a\u5236\u591c\u95f4"
         };
-        int checked = AppPrefs.isAutoTextMode(this) ? 0 : 1;
+        String current = AppPrefs.getOverlayTextMode(this);
+        int checked;
+        if (AppPrefs.TEXT_MODE_AUTO.equals(current))          checked = 0;
+        else if (AppPrefs.TEXT_MODE_FORCE_NIGHT.equals(current)) checked = 2;
+        else                                                   checked = 1;
         new AlertDialog.Builder(this)
                 .setTitle("\u9009\u62e9\u6587\u5b57\u6a21\u5f0f")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                    saveOverlayTextMode(which == 0 ? AppPrefs.TEXT_MODE_AUTO : AppPrefs.TEXT_MODE_LIGHT);
+                    String mode;
+                    if (which == 0)      mode = AppPrefs.TEXT_MODE_AUTO;
+                    else if (which == 2) mode = AppPrefs.TEXT_MODE_FORCE_NIGHT;
+                    else                 mode = AppPrefs.TEXT_MODE_LIGHT;
+                    saveOverlayTextMode(mode);
                     overlayTextModeButton.setText(textModeButtonText());
                     notifyOverlayStyleChanged();
                     dialog.dismiss();
@@ -1442,7 +1452,7 @@ public class MainActivity extends Activity {
     private void saveOverlayTextMode(String mode) {
         getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
                 .edit()
-                .putString(AppPrefs.KEY_TEXT_MODE, AppPrefs.TEXT_MODE_AUTO.equals(mode) ? AppPrefs.TEXT_MODE_AUTO : AppPrefs.TEXT_MODE_LIGHT)
+                .putString(AppPrefs.KEY_TEXT_MODE, mode)
                 .apply();
     }
 

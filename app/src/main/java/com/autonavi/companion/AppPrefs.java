@@ -45,6 +45,7 @@ public final class AppPrefs {
     public static final String KEY_TRANSPARENT_BACKGROUND       = "transparent_background";
     public static final String KEY_BACKGROUND_OPACITY_PERCENT   = "background_opacity_percent";
     public static final String KEY_TEXT_MODE                    = "text_mode";
+    public static final String TEXT_MODE_FORCE_NIGHT              = "force_night";
     public static final String KEY_OVERLAY_UI_STYLE             = "overlay_ui_style";
     public static final String KEY_AUTO_START_ENABLED           = "auto_start_enabled";
     public static final String KEY_START_SERVICE_ON_APP_OPEN    = "start_service_on_app_open";
@@ -243,6 +244,23 @@ public final class AppPrefs {
         return TEXT_MODE_AUTO.equals(getOverlayTextMode(context));
     }
 
+    public static boolean isForceNightMode(Context context) {
+        return TEXT_MODE_FORCE_NIGHT.equals(getOverlayTextMode(context));
+    }
+
+    /** Returns true if night mode is active (force night OR following system and system is night). */
+    public static boolean isNightMode(Context context) {
+        return isForceNightMode(context) || isSystemNightMode(context);
+    }
+
+    /** Checks Android system UI mode (Configuration.UI_MODE_NIGHT_YES). */
+    public static boolean isSystemNightMode(Context context) {
+        if (context == null) return false;
+        int mode = context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
     public static boolean isCardUiEnabled(Context context) {
         return OVERLAY_UI_CARD.equals(getOverlayUiStyle(context));
     }
@@ -264,7 +282,7 @@ public final class AppPrefs {
     }
 
     public static boolean usesDarkTextPalette(Context context) {
-        return getBackgroundOpacityPercent(context) <= 55 && isAutoTextMode(context);
+        return getBackgroundOpacityPercent(context) <= 55 && !isForceNightMode(context);
     }
 
     public static int getBackgroundOpacityPercent(Context context) {
@@ -280,8 +298,12 @@ public final class AppPrefs {
 
     public static String getOverlayTextMode(Context context) {
         String mode = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_TEXT_MODE, TEXT_MODE_LIGHT);
-        return TEXT_MODE_LIGHT.equals(mode) ? TEXT_MODE_LIGHT : TEXT_MODE_AUTO;
+                .getString(KEY_TEXT_MODE, TEXT_MODE_AUTO);
+        // Legacy migration: old "light" value means "force_day"
+        if (TEXT_MODE_LIGHT.equals(mode)) return TEXT_MODE_LIGHT;
+        if (TEXT_MODE_AUTO.equals(mode)) return TEXT_MODE_AUTO;
+        if (TEXT_MODE_FORCE_NIGHT.equals(mode)) return TEXT_MODE_FORCE_NIGHT;
+        return TEXT_MODE_AUTO;
     }
 
     public static String getOverlayUiStyle(Context context) {

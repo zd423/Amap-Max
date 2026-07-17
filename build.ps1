@@ -2,7 +2,7 @@
 # AMapPlus Android Companion Build Script
 # ============================================================
 # Requires: JDK 8+, Android SDK, PowerShell 5.1+
-# Output: E:\AMap\package\AMap_yy_dd_HH_mm.apk
+# Output: E:\Project\AMap\AMap\package\AMap_yy_dd_HH_mm.apk
 # ============================================================
 
 $ErrorActionPreference = 'Stop'
@@ -26,7 +26,7 @@ $classesDir  = Join-Path $buildDir 'classes'
 $dexDir      = Join-Path $buildDir 'dex'
 $resDir      = Join-Path $root 'app\src\main\res'
 $manifest    = Join-Path $root 'app\src\main\AndroidManifest.xml'
-$keystore    = 'ArcfoxS5.keystore'
+$keystore    = Join-Path $root 'ArcfoxS5.keystore'
 $tmpDir      = Join-Path $env:LOCALAPPDATA 'Temp'
 
 $androidJar  = 'D:\Env\android-sdk\platforms\android-31\android.jar'
@@ -38,7 +38,7 @@ $apksigner   = Join-Path $buildTools 'apksigner.bat'
 
 # APK output name
 $ts = Get-Date -Format "yy_MM_dd_HH_mm"
-$outApk = "E:\AMap\AMap\package\AMap_$ts.apk"
+$outApk = "E:\Project\AMap\AMap\package\AMap_$ts.apk"
 
 # ============================================================
 # Clean
