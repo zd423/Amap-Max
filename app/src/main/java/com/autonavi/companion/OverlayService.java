@@ -1524,6 +1524,9 @@ public class OverlayService extends Service {
         image.setImageResource(arrowRes);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setAdjustViewBounds(false);
+        if (isNightMode()) {
+            image.setImageAlpha((int)(255 * 0.65f));
+        }
 
         FrameLayout wrapper = new FrameLayout(context);
         wrapper.addView(image, new FrameLayout.LayoutParams(
