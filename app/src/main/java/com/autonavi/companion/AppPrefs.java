@@ -31,17 +31,10 @@ public final class AppPrefs {
     public static final String KEY_CLUSTER_Y                    = "cluster_y";
     public static final String KEY_CLUSTER_SCALE_PERCENT        = "cluster_scale_percent";
     public static final String KEY_CLUSTER_DISPLAY_ID           = "cluster_display_id";
-    public static final String KEY_SHOW_MODE                    = "show_mode";
-    public static final String KEY_SHOW_TURN                    = "show_turn";
-    public static final String KEY_SHOW_LANE                    = "show_lane";
-    public static final String KEY_SHOW_LIGHT                   = "show_light";
+    public static final String KEY_SHOW_LIGHT                 = "show_light";
     public static final String KEY_LIGHT_VERTICAL_CLUSTER          = "light_vertical_cluster";
     public static final String KEY_LIGHT_VERTICAL_MAIN             = "light_vertical_main";
     public static final String KEY_SHOW_LIGHT_DIRECTION         = "show_light_direction";
-    public static final String KEY_SHOW_SERVICE_AREA            = "show_service_area";
-    public static final String KEY_SHOW_ETA                     = "show_eta";
-    public static final String KEY_SHOW_ALERT                   = "show_alert";
-    public static final String KEY_SHOW_DETAIL                  = "show_detail";
     public static final String KEY_TRANSPARENT_BACKGROUND       = "transparent_background";
     public static final String KEY_BACKGROUND_OPACITY_PERCENT   = "background_opacity_percent";
     public static final String KEY_TEXT_MODE                    = "text_mode";
@@ -181,21 +174,6 @@ public final class AppPrefs {
                 .getInt(KEY_CLUSTER_Y, defaultValue));
     }
 
-    public static boolean isModeVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_MODE, false);
-    }
-
-    public static boolean isTurnVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_TURN, false);
-    }
-
-    public static boolean isLaneVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_LANE, false);
-    }
-
     public static boolean isLightVisible(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_SHOW_LIGHT, true);
@@ -214,26 +192,6 @@ public final class AppPrefs {
     public static boolean isLightDirectionVisible(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_SHOW_LIGHT_DIRECTION, true);
-    }
-
-    public static boolean isServiceAreaVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_SERVICE_AREA, false);
-    }
-
-    public static boolean isEtaVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_ETA, false);
-    }
-
-    public static boolean isAlertVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_ALERT, false);
-    }
-
-    public static boolean isDetailVisible(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_DETAIL, false);
     }
 
     public static boolean isTransparentBackground(Context context) {
