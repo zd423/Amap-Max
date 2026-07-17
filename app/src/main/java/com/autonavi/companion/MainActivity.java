@@ -45,7 +45,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -71,8 +70,6 @@ public class MainActivity extends Activity {
     // [REMOVED 2026-06-23] REQUEST_READ_LOGS_PERMISSION / REQUEST_STORAGE_PERMISSIONS
 
     private TextView targetText;
-    private TextView overlayScaleText;
-    private TextView clusterScaleText;
     private TextView clusterDisplayText;
     private TextView coordTextX;
     private TextView coordTextY;
@@ -234,7 +231,6 @@ public class MainActivity extends Activity {
         rightColumn.addView(settings, new LinearLayout.LayoutParams(-1, -2));
         addScaleControls(settings);
         addClusterMirrorControls(settings);
-        addOverlayTargetControls(settings);
         addOverlayContentControls(settings);
 
         // [ADDED] 2026-06-23 悬浮窗样式和文字模式移到右侧
@@ -301,13 +297,6 @@ public class MainActivity extends Activity {
 
     // [REMOVED] 2026-06-11 开源信息区块已删除
 
-    // [MODIFIED] 2026-06-23 实时生效 + 防抖，去掉应用按钮
-    private final Handler overlayScaleDebouncer = new Handler(Looper.getMainLooper());
-    private static final long OVERLAY_SCALE_DEBOUNCE_MS = 150;
-    // [ADDED] 2026-06-24 副屏滑块防抖，与主屏保持一致
-    private final Handler clusterScaleDebouncer = new Handler(Looper.getMainLooper());
-    private static final long CLUSTER_SCALE_DEBOUNCE_MS = 150;
-
     private void addScaleControls(LinearLayout parent) {
         // 圆角边框卡片
         GradientDrawable cardBg = new GradientDrawable();
@@ -322,95 +311,113 @@ public class MainActivity extends Activity {
 
         // 卡片标题
         TextView title = new TextView(this);
-        title.setText("悬浮窗大小");
+        title.setText("悬浮窗显示位置");
         title.setTextSize(14f);
         title.setTextColor(0xFF111827);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
-        // 主屏大小
-        LinearLayout mainBox = new LinearLayout(this);
-        mainBox.setOrientation(LinearLayout.VERTICAL);
-        mainBox.setPadding(0, dp(12), 0, dp(8));
+        // 主屏悬浮窗 + 大小输入
+        LinearLayout mainRow = new LinearLayout(this);
+        mainRow.setOrientation(LinearLayout.HORIZONTAL);
+        mainRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        mainRow.setPadding(0, dp(12), 0, dp(8));
 
-        overlayScaleText = new TextView(this);
-        overlayScaleText.setTextSize(13f);
-        overlayScaleText.setTextColor(0xFF334155);
-        mainBox.addView(overlayScaleText, new LinearLayout.LayoutParams(-1, -2));
+        CheckBox mainToggle = overlayTargetToggle("主屏悬浮窗", AppPrefs.KEY_MAIN_OVERLAY_ENABLED);
+        mainRow.addView(mainToggle);
 
-        SeekBar mainSeekBar = new SeekBar(this);
-        mainSeekBar.setMax(AppPrefs.MAX_OVERLAY_SCALE_PERCENT - AppPrefs.MIN_OVERLAY_SCALE_PERCENT);
-        mainSeekBar.setProgress(AppPrefs.getOverlayScalePercent(this) - AppPrefs.MIN_OVERLAY_SCALE_PERCENT);
-        mainSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                int percent = AppPrefs.MIN_OVERLAY_SCALE_PERCENT + progress;
-                updateOverlayScaleText(percent);
-                if (fromUser) {
+        TextView mainLabel = new TextView(this);
+        mainLabel.setText("大小");
+        mainLabel.setTextSize(13f);
+        mainLabel.setTextColor(0xFF334155);
+        LinearLayout.LayoutParams mainLabelLp = new LinearLayout.LayoutParams(-2, -2);
+        mainLabelLp.setMarginStart(dp(12));
+        mainRow.addView(mainLabel, mainLabelLp);
+
+        EditText mainInput = new EditText(this);
+        mainInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        mainInput.setText(String.valueOf(AppPrefs.getOverlayScalePercent(this)));
+        mainInput.setSelection(mainInput.getText().length());
+        mainInput.setTextSize(13f);
+        mainInput.setGravity(android.view.Gravity.CENTER);
+        mainInput.setMinWidth(dp(56));
+        mainInput.setMaxWidth(dp(72));
+        LinearLayout.LayoutParams mainInputLp = new LinearLayout.LayoutParams(-2, -2);
+        mainInputLp.setMarginStart(dp(4));
+        mainRow.addView(mainInput, mainInputLp);
+
+        TextView mainSuffix = new TextView(this);
+        mainSuffix.setText("%");
+        mainSuffix.setTextSize(13f);
+        mainSuffix.setTextColor(0xFF334155);
+        mainRow.addView(mainSuffix);
+
+        mainInput.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                try {
+                    int percent = Integer.parseInt(mainInput.getText().toString().trim());
+                    percent = AppPrefs.clampOverlayScalePercent(percent);
+                    mainInput.setText(String.valueOf(percent));
                     saveOverlayScalePercent(percent);
-                    overlayScaleDebouncer.removeCallbacksAndMessages(null);
-                    overlayScaleDebouncer.postDelayed(() -> notifyOverlayScaleChanged(), OVERLAY_SCALE_DEBOUNCE_MS);
+                    notifyOverlayScaleChanged();
+                } catch (NumberFormatException ignored) {
+                    mainInput.setText(String.valueOf(AppPrefs.getOverlayScalePercent(MainActivity.this)));
                 }
             }
-            @Override
-            public void onStartTrackingTouch(SeekBar bar) {
-                overlayScaleDebouncer.removeCallbacksAndMessages(null);
-            }
-            @Override
-            public void onStopTrackingTouch(SeekBar bar) {
-                int percent = AppPrefs.MIN_OVERLAY_SCALE_PERCENT + bar.getProgress();
-                saveOverlayScalePercent(percent);
-                updateOverlayScaleText(percent);
-                overlayScaleDebouncer.removeCallbacksAndMessages(null);
-                notifyOverlayScaleChanged();
-            }
         });
-        mainBox.addView(mainSeekBar, new LinearLayout.LayoutParams(-1, -2));
-        updateOverlayScaleText(AppPrefs.getOverlayScalePercent(this));
 
-        card.addView(mainBox, new LinearLayout.LayoutParams(-1, -2));
+        card.addView(mainRow, new LinearLayout.LayoutParams(-1, -2));
 
-        // 副屏大小
-        LinearLayout clusterBox = new LinearLayout(this);
-        clusterBox.setOrientation(LinearLayout.VERTICAL);
-        clusterBox.setPadding(0, dp(12), 0, 0);
+        // 副屏悬浮窗 + 大小输入
+        LinearLayout clusterRow = new LinearLayout(this);
+        clusterRow.setOrientation(LinearLayout.HORIZONTAL);
+        clusterRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        clusterRow.setPadding(0, dp(12), 0, dp(8));
 
-        clusterScaleText = new TextView(this);
-        clusterScaleText.setTextSize(13f);
-        clusterScaleText.setTextColor(0xFF334155);
-        clusterBox.addView(clusterScaleText, new LinearLayout.LayoutParams(-1, -2));
+        CheckBox clusterToggle = overlayTargetToggle("副屏悬浮窗", AppPrefs.KEY_CLUSTER_MIRROR_ENABLED);
+        clusterRow.addView(clusterToggle);
 
-        SeekBar clusterSeekBar = new SeekBar(this);
-        clusterSeekBar.setMax(AppPrefs.MAX_OVERLAY_SCALE_PERCENT - AppPrefs.MIN_OVERLAY_SCALE_PERCENT);
-        clusterSeekBar.setProgress(AppPrefs.getClusterScalePercent(this) - AppPrefs.MIN_OVERLAY_SCALE_PERCENT);
-        clusterSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                int percent = AppPrefs.MIN_OVERLAY_SCALE_PERCENT + progress;
-                updateClusterScaleText(percent);
-                if (fromUser) {
+        TextView clusterLabel = new TextView(this);
+        clusterLabel.setText("大小");
+        clusterLabel.setTextSize(13f);
+        clusterLabel.setTextColor(0xFF334155);
+        LinearLayout.LayoutParams clusterLabelLp = new LinearLayout.LayoutParams(-2, -2);
+        clusterLabelLp.setMarginStart(dp(12));
+        clusterRow.addView(clusterLabel, clusterLabelLp);
+
+        EditText clusterInput = new EditText(this);
+        clusterInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        clusterInput.setText(String.valueOf(AppPrefs.getClusterScalePercent(this)));
+        clusterInput.setSelection(clusterInput.getText().length());
+        clusterInput.setTextSize(13f);
+        clusterInput.setGravity(android.view.Gravity.CENTER);
+        clusterInput.setMinWidth(dp(56));
+        clusterInput.setMaxWidth(dp(72));
+        LinearLayout.LayoutParams clusterInputLp = new LinearLayout.LayoutParams(-2, -2);
+        clusterInputLp.setMarginStart(dp(4));
+        clusterRow.addView(clusterInput, clusterInputLp);
+
+        TextView clusterSuffix = new TextView(this);
+        clusterSuffix.setText("%");
+        clusterSuffix.setTextSize(13f);
+        clusterSuffix.setTextColor(0xFF334155);
+        clusterRow.addView(clusterSuffix);
+
+        clusterInput.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                try {
+                    int percent = Integer.parseInt(clusterInput.getText().toString().trim());
+                    percent = AppPrefs.clampOverlayScalePercent(percent);
+                    clusterInput.setText(String.valueOf(percent));
                     saveClusterScalePercent(percent);
-                    clusterScaleDebouncer.removeCallbacksAndMessages(null);
-                    clusterScaleDebouncer.postDelayed(() -> notifyClusterMirrorChanged(), CLUSTER_SCALE_DEBOUNCE_MS);
+                    notifyClusterMirrorChanged();
+                } catch (NumberFormatException ignored) {
+                    clusterInput.setText(String.valueOf(AppPrefs.getClusterScalePercent(MainActivity.this)));
                 }
             }
-            @Override
-            public void onStartTrackingTouch(SeekBar bar) {
-                clusterScaleDebouncer.removeCallbacksAndMessages(null);
-            }
-            @Override
-            public void onStopTrackingTouch(SeekBar bar) {
-                int percent = AppPrefs.MIN_OVERLAY_SCALE_PERCENT + bar.getProgress();
-                saveClusterScalePercent(percent);
-                updateClusterScaleText(percent);
-                clusterScaleDebouncer.removeCallbacksAndMessages(null);
-                notifyClusterMirrorChanged();
-            }
         });
-        clusterBox.addView(clusterSeekBar, new LinearLayout.LayoutParams(-1, -2));
-        updateClusterScaleText(AppPrefs.getClusterScalePercent(this));
 
-        card.addView(clusterBox, new LinearLayout.LayoutParams(-1, -2));
+        card.addView(clusterRow, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, dp(10), 0, 0);
@@ -541,45 +548,6 @@ public class MainActivity extends Activity {
         parent.addView(card, cardLp);
     }
 
-    private void addOverlayTargetControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-
-        TextView title = new TextView(this);
-        title.setText("\u60ac\u6d6e\u7a97\u663e\u793a\u4f4d\u7f6e");
-        title.setTextSize(14f);
-        title.setTextColor(0xFF111827);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(-1, -2);
-        gridLp.setMargins(0, dp(10), 0, 0);
-        card.addView(grid, gridLp);
-
-        if (isWideLayout()) {
-            addTogglePair(grid,
-                    overlayTargetToggle("\u4e3b\u5c4f\u60ac\u6d6e\u7a97", AppPrefs.KEY_MAIN_OVERLAY_ENABLED),
-                    overlayTargetToggle("\u526f\u5c4f\u60ac\u6d6e\u7a97", AppPrefs.KEY_CLUSTER_MIRROR_ENABLED));
-        } else {
-            grid.addView(overlayTargetToggle("\u4e3b\u5c4f\u60ac\u6d6e\u7a97", AppPrefs.KEY_MAIN_OVERLAY_ENABLED));
-            grid.addView(overlayTargetToggle("\u526f\u5c4f\u60ac\u6d6e\u7a97", AppPrefs.KEY_CLUSTER_MIRROR_ENABLED));
-        }
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
-        parent.addView(card, lp);
-    }
-
     private void addOverlayContentControls(LinearLayout parent) {
         // 圆角边框卡片
         GradientDrawable cardBg = new GradientDrawable();
@@ -667,9 +635,6 @@ public class MainActivity extends Activity {
 
         if (isWideLayout()) {
             addTogglePair(grid,
-                    behaviorToggle("开机或亮屏自动启动服务", AppPrefs.KEY_AUTO_START_ENABLED),
-                    behaviorToggle("进入软件后自动启动服务", AppPrefs.KEY_START_SERVICE_ON_APP_OPEN));
-            addTogglePair(grid,
                     behaviorToggle("桌面启动时直接进入目标应用", AppPrefs.KEY_LAUNCH_TARGET_FROM_DESKTOP),
                     behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
             addTogglePair(grid,
@@ -679,8 +644,6 @@ public class MainActivity extends Activity {
                     directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER),
                     directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN));
         } else {
-            grid.addView(behaviorToggle("开机或亮屏自动启动服务", AppPrefs.KEY_AUTO_START_ENABLED));
-            grid.addView(behaviorToggle("进入软件后自动启动服务", AppPrefs.KEY_START_SERVICE_ON_APP_OPEN));
             grid.addView(behaviorToggle("桌面启动时直接进入目标应用", AppPrefs.KEY_LAUNCH_TARGET_FROM_DESKTOP));
             grid.addView(behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
             grid.addView(behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND));
@@ -1244,12 +1207,6 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
-    private void updateOverlayScaleText(int percent) {
-        if (overlayScaleText != null) {
-            overlayScaleText.setText("\u60ac\u6d6e\u7a97\u5927\u5c0f " + AppPrefs.clampOverlayScalePercent(percent) + "%");
-        }
-    }
-
     private CheckBox contentToggle(String text, String key) {
         CheckBox checkBox = new CheckBox(this);
         checkBox.setText(text);
@@ -1554,12 +1511,6 @@ public class MainActivity extends Activity {
                 .edit()
                 .putInt(AppPrefs.KEY_CLUSTER_SCALE_PERCENT, AppPrefs.clampOverlayScalePercent(percent))
                 .apply();
-    }
-
-    private void updateClusterScaleText(int percent) {
-        if (clusterScaleText != null) {
-            clusterScaleText.setText("\u526f\u5c4f\u5927\u5c0f " + AppPrefs.clampOverlayScalePercent(percent) + "%");
-        }
     }
 
     private void updateClusterDisplayText() {
