@@ -1067,9 +1067,9 @@ public class OverlayService extends Service {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
         int b = color & 0xFF;
-        r = (int) (r * 0.65f);
-        g = (int) (g * 0.65f);
-        b = (int) (b * 0.65f);
+        r = (int) (r * 0.70f);
+        g = (int) (g * 0.70f);
+        b = (int) (b * 0.70f);
         return (color & 0xFF000000) | (r << 16) | (g << 8) | b;
     }
 
@@ -1525,7 +1525,7 @@ public class OverlayService extends Service {
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setAdjustViewBounds(false);
         if (isNightMode()) {
-            image.setImageAlpha((int)(255 * 0.65f));
+            image.setImageAlpha((int)(255 * 0.70f));
         }
 
         FrameLayout wrapper = new FrameLayout(context);
