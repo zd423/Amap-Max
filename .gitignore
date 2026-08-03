@@ -12,3 +12,8 @@ local.properties
 build/
 env/
 amap/
+# 调试产物不入库
+/ui*.xml
+/shot*.png
+/导航.png
+/ui*.png
