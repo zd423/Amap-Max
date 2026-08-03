@@ -39,6 +39,10 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+// ── 极狐转向 HUD（arcfox-turn-hud 移植）────────────────────────────────────
+import com.autonavi.companion.vehicle.AdayoTurnSignalMonitor;
+import com.autonavi.companion.vehicle.TurnSignalController;
+
 import org.json.JSONObject;
 
 import java.io.File;
@@ -58,28 +62,50 @@ public class OverlayService extends Service {
     public static final String ACTION_REBUILD_STYLE = "com.autonavi.companion.REBUILD_STYLE";
     public static final String ACTION_REBUILD_CONTENT = "com.autonavi.companion.REBUILD_CONTENT";
     public static final String ACTION_REBUILD_POLICY = "com.autonavi.companion.REBUILD_POLICY";
+    // 允许第三方工具/自动化按 action 直接拉起服务（不弹 App 页面）
+    public static final String ACTION_START_SERVICE = "com.autonavi.companion.START_OVERLAY_SERVICE";
+    // 【新增·转向 HUD】设置页 Intent 直传：重建/刷新转向 HUD、触发预览
+    public static final String ACTION_REBUILD_TURN_SIGNAL = "com.autonavi.companion.REBUILD_TURN_SIGNAL";
+    public static final String ACTION_PREVIEW_TURN_SIGNAL = "com.autonavi.companion.PREVIEW_TURN_SIGNAL";
     private static final String CHANNEL_ID = "amap_companion";
     private static final String ACTION_SEND = "AUTONAVI_STANDARD_BROADCAST_SEND";
     private static final String ACTION_RECV = "AUTONAVI_STANDARD_BROADCAST_RECV";
     private static final long LIGHT_TTL_MS = 4500L;
     private static final long LIGHT_TICK_MS = 1000L;
     private static final long DISPLAY_POLICY_POLL_MS = 1500L;
+    // 导航活跃 TTL：导航模式广播频繁，12s 足够；
+    // 巡航模式广播频率低（无路况更新时可能暂停），单独放宽到 45s，避免副屏误隐藏闪烁
     private static final long NAVIGATION_ACTIVE_TTL_MS = 12000L;
+    private static final long CRUISE_ACTIVE_TTL_MS = 45000L;
     private static final long TARGET_BROADCAST_ACTIVE_TTL_MS = 15000L;
     private static final long PANEL_WIDTH_SHRINK_DELAY_MS = 2500L;
-    private static final long OVERSPEED_BLINK_MS = 5000L;
-    private static final long OVERSPEED_MILD_REST_MS = 20000L;
-    private static final long OVERSPEED_MEDIUM_REST_MS = 10000L;
+    // 超速边框：
+    //   超速 <=10% 黄框、10%~20% 红框：稳态显示 OVERSPEED_ON_MS 后隐藏，等 OVERSPEED_OFF_MS 仍超速则往复
+    //   超速 >20% 红框：常亮不歇，持续循环直到降到 20% 以下
+    private static final long OVERSPEED_ON_MS = 5000L;
+    private static final long OVERSPEED_OFF_MS = 20000L;
     private static final int OVERSPEED_NONE = 0;
-    private static final int OVERSPEED_MILD = 1;
-    private static final int OVERSPEED_MEDIUM = 2;
-    private static final int OVERSPEED_HIGH = 3;
+    private static final int OVERSPEED_MILD = 1;      // 超速 <=10% : 黄框（往复）
+    private static final int OVERSPEED_MEDIUM = 2;    // 超速 10%~20% : 红框（往复）
+    private static final int OVERSPEED_CRITICAL = 3;  // 超速 >20%  : 红框（常亮不歇）
     private static final long ALERT_TTL_MS = 5000L;
+    // 【新增·转向 HUD】预览时长；比 Latch(950ms) 长足够多，肉眼可完整看清一轮动画
+    private static final long TURN_PREVIEW_MS = 2600L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
     private LinearLayout panel;
+    // 【转向只在 HUD】转向箭头仅渲染到副屏（HUD）display，中控屏不创建任何转向窗口。
+    // 复用红绿灯副屏的 findClusterDisplay() / createDisplayContext() 机制：
+    // 用户已在「副屏设置」里选定 HUD display（红绿灯能上 HUD 即证明选择有效）。
+    // 无副屏（如模拟器单屏）时 attachClusterTurnSignalWindow() 返回 false 静默跳过，转向不渲染。
+    private Context turnClusterContext;
+    private WindowManager turnClusterWindowManager;
+    private WindowManager.LayoutParams turnClusterParams;
+    private FrameLayout turnClusterHost;
+    private TurnSignalController turnClusterController;
+    private Display turnClusterDisplay;
     // Cached light pill LinearLayouts per slot (0=left, 1=straight, 2=right)
     private LinearLayout[] cachedLightPills = new LinearLayout[3];
     private LinearLayout[] cachedClusterLightPills = new LinearLayout[3];
@@ -109,12 +135,11 @@ public class OverlayService extends Service {
     private int currentVehicleSpeed = -1;
     private int navigationTurnDir = -1;
     private int currentTurnIcon = 0;
-    private Runnable overspeedBlinks;
-    private boolean overspeedBlinkOn;
-    private boolean overspeedBlinkPhase;
+    private Runnable overspeedBlinks;        // 显示阶段（稳态 5s）的周期回调
+    private Runnable overspeedOffRunnable;   // 隐藏等待阶段（20s）的回调
+    private boolean overspeedOffPhase;       // true = 正处于 20s 隐藏等待期
     private int overspeedColor;
     private int overspeedLevel;
-    private long overspeedPhaseStartedAt;
     private GradientDrawable panelBackground;
     private GradientDrawable clusterPanelBackground;
     private Runnable mainPanelWidthUnlock;
@@ -136,6 +161,7 @@ public class OverlayService extends Service {
     private boolean targetBroadcastActive;
     private boolean navigationOrCruiseActive;
     private long lastNavigationSignalAt;
+    private long lastCruiseSignalAt;
     private long lastTargetBroadcastAt;
 
     // Light row references - shared between cruise/nav modes
@@ -179,6 +205,8 @@ public class OverlayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        // 一次性迁移：旧版默认 safe_left=34（1/3 固定仪表区避让）→ 新版默认 0（1300×900 全屏对称）
+        AppPrefs.migrateSafeLeftIfLegacyDefault(this);
         startForeground(1, buildNotification());
         registerAmapReceivers();
         stopSelfIfNoVisuals();
@@ -192,12 +220,14 @@ public class OverlayService extends Service {
             onCreateDelayed = false;
             ensureOverlay();
             ensureClusterMirror();
+            ensureTurnSignalOverlay();   // 【新增·转向 HUD】与主/仪表窗同批延迟创建
             stopSelfIfNoVisuals();
         }, 800);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG, "onStartCommand action=" + (intent != null ? intent.getAction() : "null"));
         if (intent != null && ACTION_STOP_SERVICE.equals(intent.getAction())) {
             shutdownWindowsImmediately();
             stopSelfResult(startId);
@@ -215,11 +245,43 @@ public class OverlayService extends Service {
         if (intent != null && ACTION_REBUILD_POLICY.equals(intent.getAction())) {
             applyContentVisibilityPrefs();
             syncMainOverlayAttachment();
+            // P2-4：红绿灯竖向/横向切换、红绿灯可见性等显示策略变更需立即重建渲染，
+            // 不能依赖 1s ticker 或下一条广播才生效
+            renderTrafficLights();
+            return START_STICKY;
+        }
+        // 【新增·转向 HUD】设置项变更：重建/刷新独立悬浮窗
+        if (intent != null && ACTION_REBUILD_TURN_SIGNAL.equals(intent.getAction())) {
+            ensureTurnSignalOverlay();
+            stopSelfIfNoVisuals();
+            return START_STICKY;
+        }
+        // 【新增·转向 HUD】设置页预览：left / right / hazard
+        if (intent != null && ACTION_PREVIEW_TURN_SIGNAL.equals(intent.getAction())) {
+            previewTurnSignal(intent.getStringExtra(AppPrefs.EXTRA_TURN_SIGNAL_PREVIEW));
+            return START_STICKY;
+        }
+        // 【新增·转向 HUD】模拟器/调试注入（startService 路径，绕过广播限制）
+        if (intent != null && AppPrefs.ACTION_TURN_SIGNAL_INJECT.equals(intent.getAction())) {
+            injectTurnSignal(intent);
+            return START_STICKY;
+        }
+        if (intent != null && ACTION_START_SERVICE.equals(intent.getAction())) {
+            // 外部按 action 拉起服务：走与默认启动一致的初始化路径，不依赖 Activity
+            if (!onCreateDelayed) {
+                ensureOverlay();
+                ensureClusterMirror();
+                ensureTurnSignalOverlay();
+            }
+            if (shouldRequestAmapData()) {
+                requestTrafficLightInfo();
+            }
             return START_STICKY;
         }
         if (!onCreateDelayed) {
             ensureOverlay();
             ensureClusterMirror();
+            ensureTurnSignalOverlay();
             stopSelfIfNoVisuals();
         }
         if (shouldRequestAmapData()) {
@@ -245,7 +307,15 @@ public class OverlayService extends Service {
         mainPanelWidthUnlock = null;
         clusterPanelWidthUnlock = null;
         overspeedBlinks = null;
+        overspeedOffRunnable = null;
+        overspeedOffPhase = false;
         dismissClusterMirror();
+        // 【新增·转向 HUD】服务停机：先摘监听再停线程，避免回调打到已销毁的 View
+        dismissTurnSignalOverlay();
+        try {
+            AdayoTurnSignalMonitor.stop();
+        } catch (Throwable ignored) {
+        }
         if (windowManager != null && panel != null && panel.getParent() != null) {
             try {
                 panel.setVisibility(View.GONE);
@@ -289,6 +359,10 @@ public class OverlayService extends Service {
         filter.addAction(AppPrefs.ACTION_OVERLAY_CONTENT_CHANGED);
         filter.addAction(AppPrefs.ACTION_OVERLAY_STYLE_CHANGED);
         filter.addAction(AppPrefs.ACTION_DISPLAY_POLICY_CHANGED);
+        // 【新增·转向 HUD】配置变更 / 预览 / 调试注入广播
+        filter.addAction(AppPrefs.ACTION_TURN_SIGNAL_CHANGED);
+        filter.addAction(AppPrefs.ACTION_TURN_SIGNAL_PREVIEW);
+        filter.addAction(AppPrefs.ACTION_TURN_SIGNAL_INJECT);
         filter.addAction(android.content.Intent.ACTION_CONFIGURATION_CHANGED);
         try {
             registerReceiver(receiver, filter);
@@ -574,6 +648,8 @@ public class OverlayService extends Service {
         boolean wasAttached = panel != null && panel.getParent() != null;
         dismissClusterMirror();
         rebuildOverlay();
+        // 【新增·转向 HUD】日夜文本模式属于「样式」分类，切换后需重算箭头调光色
+        refreshTurnSignalOverlay();
         if (shouldAttach && windowManager != null && panel != null && panel.getParent() == null) {
             try {
                 windowManager.addView(panel, params);
@@ -643,7 +719,7 @@ public class OverlayService extends Service {
         card.setPadding(padH, padTop, padH, padBottom);
         GradientDrawable bg = new GradientDrawable();
         int opacity = 0;
-        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
+        bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         bg.setCornerRadius(scaledDp(12, scale));
         card.setBackground(bg);
 
@@ -913,9 +989,230 @@ public class OverlayService extends Service {
         if (!AppPrefs.isMainOverlayEnabled(this)
                 && !AppPrefs.isClusterMirrorEnabled(this)
                 && !AppPrefs.isAutoStartEnabled(this)
+                // 【新增·转向 HUD】转向 HUD 可独立于主悬浮窗工作，
+                // 只要它开着服务就必须活着，否则 logcat 监控线程会被杀
+                && !AppPrefs.isTurnSignalOverlayEnabled(this)
                 && !AppPrefs.isShowMainWhenTargetForegroundEnabled(this)) {
             stopSelf();
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  【新增·转向 HUD】独立全屏悬浮窗生命周期（arcfox-turn-hud 移植）
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 按开关状态创建 / 刷新 / 回收转向 HUD 窗口。
+     * 幂等：重复调用不会重复 addView，可安全地在任意广播里调用。
+     */
+    private void ensureTurnSignalOverlay() {
+        if (!AppPrefs.isTurnSignalOverlayEnabled(this)) {
+            // 关闭 → 停监控线程并回收窗口，零 CPU / 零窗口占用
+            AdayoTurnSignalMonitor.stop();
+            dismissTurnSignalOverlay();
+            return;
+        }
+        if (!AdayoTurnSignalMonitor.isRunning()) {
+            AdayoTurnSignalMonitor.start(getApplicationContext());
+        }
+        // 【转向只在 HUD】中控屏不渲染转向，仅挂载副屏（HUD）窗口；无副屏（如模拟器）自动跳过
+        if (attachClusterTurnSignalWindow()) {
+            refreshTurnSignalOverlay();
+        }
+    }
+
+    /** 设置项或日夜主题变更后重载渲染参数（不重建窗口）。
+     *  转向只在 HUD：仅副屏（HUD）控制器需要刷新。 */
+    private void refreshTurnSignalOverlay() {
+        if (turnClusterController != null) {
+            try {
+                turnClusterController.refreshPreferences();
+            } catch (Throwable t) {
+                Log.e(TAG, "cluster turn signal refresh failed", t);
+            }
+        }
+    }
+
+    /**
+     * 【转向只在 HUD】在副屏（HUD）display 上挂载转向 HUD 窗口（中控屏不再渲染转向）。
+     * 复用红绿灯副屏的 findClusterDisplay() / createDisplayContext() 机制：
+     * 用户已在「副屏设置」里选定 HUD display（红绿灯能上 HUD 即证明选择有效）。
+     * 无副屏（如模拟器单屏）时返回 false，转向不渲染。
+     * 幂等：重复调用不会重复 addView。
+     */
+    private boolean attachClusterTurnSignalWindow() {
+        // 已挂载但目标 display 变化（用户在副屏设置里切换了 HUD）→ 重建到新屏
+        if (turnClusterHost != null && turnClusterHost.getParent() != null) {
+            Display current = findClusterDisplay();
+            if (current != null && turnClusterDisplay != null
+                    && current.getDisplayId() == turnClusterDisplay.getDisplayId()) {
+                return true;
+            }
+            dismissClusterTurnSignalWindow();
+        }
+        Display display = findClusterDisplay();
+        if (display == null || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
+            return false;
+        }
+        turnClusterDisplay = display;
+        try {
+            if (turnClusterWindowManager == null) {
+                if (turnClusterContext == null) {
+                    try {
+                        turnClusterContext = createDisplayContext(display);
+                    } catch (Throwable t) {
+                        turnClusterContext = this;
+                    }
+                }
+                if (turnClusterContext == null) {
+                    turnClusterContext = this;
+                }
+                turnClusterWindowManager = (WindowManager) turnClusterContext.getSystemService(WINDOW_SERVICE);
+            }
+            if (turnClusterWindowManager == null) return false;
+            if (turnClusterHost == null) {
+                turnClusterHost = new FrameLayout(turnClusterContext);
+                turnClusterHost.setClickable(false);
+                turnClusterHost.setFocusable(false);
+                turnClusterHost.setBackgroundColor(Color.TRANSPARENT);
+            }
+            int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    : WindowManager.LayoutParams.TYPE_PHONE;
+            turnClusterParams = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    type,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT);
+            turnClusterParams.gravity = Gravity.TOP | Gravity.START;
+            turnClusterParams.x = 0;
+            turnClusterParams.y = 0;
+            turnClusterWindowManager.addView(turnClusterHost, turnClusterParams);
+
+            if (turnClusterController == null) {
+                // 用 display context 创建控制器：TurnSignalOverlayView 的 dp 尺寸按副屏 density 计算
+                turnClusterController = new TurnSignalController(turnClusterContext);
+            }
+            turnClusterController.attachToHost(turnClusterHost);
+            turnClusterController.onWindowVisibilityChanged(true);
+            Log.d(TAG, "attachClusterTurnSignalWindow OK display=" + display.getDisplayId()
+                    + " flags=" + display.getFlags() + " name=" + display.getName());
+            return true;
+        } catch (Throwable t) {
+            Log.e(TAG, "cluster turn signal overlay attach failed", t);
+            dismissClusterTurnSignalWindow();
+            return false;
+        }
+    }
+
+    /** 回收副屏（HUD）转向窗口与控制器（监控线程由调用方决定是否一并停止） */
+    private void dismissClusterTurnSignalWindow() {
+        if (turnClusterController != null) {
+            try {
+                turnClusterController.destroy();
+            } catch (Throwable ignored) {
+            }
+            turnClusterController = null;
+        }
+        if (turnClusterWindowManager != null && turnClusterHost != null
+                && turnClusterHost.getParent() != null) {
+            try {
+                turnClusterWindowManager.removeViewImmediate(turnClusterHost);
+            } catch (Throwable ignored) {
+            }
+        }
+        turnClusterHost = null;
+        turnClusterParams = null;
+        turnClusterWindowManager = null;
+        turnClusterContext = null;
+        turnClusterDisplay = null;
+    }
+
+    /** 回收转向窗口与控制器（监控线程由调用方决定是否一并停止）。
+     *  转向只在 HUD：中控无转向窗口，此处仅回收副屏（HUD）窗口。 */
+    private void dismissTurnSignalOverlay() {
+        dismissClusterTurnSignalWindow();
+    }
+
+    /**
+     * 设置页预览。开关关闭时也允许预览：临时拉起窗口，
+     * 预览结束后若仍为关闭状态则自动回收，不留常驻窗口。
+     */
+    private void previewTurnSignal(String raw) {
+        Log.d(TAG, "previewTurnSignal raw=" + raw);
+        AdayoTurnSignalMonitor.Direction direction = parsePreviewDirection(raw);
+        // 【转向只在 HUD】预览仅走副屏（HUD）通道；无副屏（如模拟器）则跳过。
+        // 预览结束由 turnPreviewCleanup（关闭态）或 ensureTurnSignalOverlay 重建（开启态）统一回收
+        if (!attachClusterTurnSignalWindow()) return;
+        refreshTurnSignalOverlay();
+        if (turnClusterController == null) return;
+        turnClusterController.preview(direction, TURN_PREVIEW_MS);
+        if (!AppPrefs.isTurnSignalOverlayEnabled(this)) {
+            mainHandler.removeCallbacks(turnPreviewCleanup);
+            mainHandler.postDelayed(turnPreviewCleanup, TURN_PREVIEW_MS + 500L);
+        }
+    }
+
+    private final Runnable turnPreviewCleanup = new Runnable() {
+        @Override
+        public void run() {
+            if (!AppPrefs.isTurnSignalOverlayEnabled(OverlayService.this)) {
+                dismissTurnSignalOverlay();
+                stopSelfIfNoVisuals();
+            }
+        }
+    };
+
+    private AdayoTurnSignalMonitor.Direction parsePreviewDirection(String raw) {
+        if (raw == null) return AdayoTurnSignalMonitor.Direction.HAZARD;
+        String v = raw.trim().toLowerCase(java.util.Locale.US);
+        if ("left".equals(v)) return AdayoTurnSignalMonitor.Direction.LEFT;
+        if ("right".equals(v)) return AdayoTurnSignalMonitor.Direction.RIGHT;
+        return AdayoTurnSignalMonitor.Direction.HAZARD;
+    }
+
+    /**
+     * 模拟器/调试注入：解析 {"direction":"RIGHT","left":0,"right":1} 并写入 monitor。
+     * 用于在模拟器上绕过 logcat uid 隔离，完整自测 Latch / 渲染链路。
+     */
+    private void injectTurnSignal(Intent intent) {
+        if (intent == null) return;
+        String raw = intent.getStringExtra(AppPrefs.EXTRA_TURN_SIGNAL_INJECT);
+        Log.d(TAG, "injectTurnSignal raw=" + raw);
+        AdayoTurnSignalMonitor.Direction direction = AdayoTurnSignalMonitor.Direction.OFF;
+        int left = 0, right = 0;
+        try {
+            if (raw != null && !raw.isEmpty()) {
+                JSONObject json = new JSONObject(raw);
+                String dir = json.optString("direction", "OFF").trim().toUpperCase(java.util.Locale.US);
+                direction = parseInjectDirection(dir);
+                left = json.optInt("left", 0);
+                right = json.optInt("right", 0);
+            } else {
+                direction = parseInjectDirection(intent.getStringExtra("direction"));
+                left = intent.getIntExtra("left", 0);
+                right = intent.getIntExtra("right", 0);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "turn signal inject parse failed: " + t.getMessage());
+            return;
+        }
+        Log.d(TAG, "injectTurnSignal direction=" + direction + " left=" + left + " right=" + right);
+        AdayoTurnSignalMonitor.inject(direction, left, right);
+    }
+
+    private AdayoTurnSignalMonitor.Direction parseInjectDirection(String raw) {
+        if (raw == null) return AdayoTurnSignalMonitor.Direction.OFF;
+        String v = raw.trim().toUpperCase(java.util.Locale.US);
+        if ("LEFT".equals(v))   return AdayoTurnSignalMonitor.Direction.LEFT;
+        if ("RIGHT".equals(v))  return AdayoTurnSignalMonitor.Direction.RIGHT;
+        if ("HAZARD".equals(v)) return AdayoTurnSignalMonitor.Direction.HAZARD;
+        return AdayoTurnSignalMonitor.Direction.OFF;
     }
 
     private void openMainActivity() {
@@ -944,6 +1241,8 @@ public class OverlayService extends Service {
         if (AppPrefs.ACTION_CLUSTER_MIRROR_CHANGED.equals(action)) {
             clusterScale = -1f;
             ensureClusterMirror();
+            // 【新增·转向 HUD 副屏】副屏 display 可能已切换：转向窗口跟随重建到新屏
+            ensureTurnSignalOverlay();
             stopSelfIfNoVisuals();
             return;
         }
@@ -957,6 +1256,8 @@ public class OverlayService extends Service {
         }
         if (AppPrefs.ACTION_OVERLAY_CONTENT_CHANGED.equals(action)) {
             applyContentVisibilityPrefs();
+            // ≤4s 呼吸动画开关切换需立即重建渲染，不能等 1s ticker 或下一条广播
+            renderTrafficLights();
             return;
         }
         if (AppPrefs.ACTION_DISPLAY_POLICY_CHANGED.equals(action)) {
@@ -965,8 +1266,30 @@ public class OverlayService extends Service {
             stopSelfIfNoVisuals();
             return;
         }
+        // 【新增·转向 HUD】开关/颜色/特效/透明度/尺寸/位置变更
+        if (AppPrefs.ACTION_TURN_SIGNAL_CHANGED.equals(action)) {
+            ensureTurnSignalOverlay();
+            stopSelfIfNoVisuals();
+            return;
+        }
+        // 【新增·转向 HUD】预览
+        if (AppPrefs.ACTION_TURN_SIGNAL_PREVIEW.equals(action)) {
+            previewTurnSignal(intent.getStringExtra(AppPrefs.EXTRA_TURN_SIGNAL_PREVIEW));
+            return;
+        }
+        // 【新增·转向 HUD】模拟器/调试注入：绕过 logcat，直接把状态写入 monitor
+        if (AppPrefs.ACTION_TURN_SIGNAL_INJECT.equals(action)) {
+            injectTurnSignal(intent);
+            return;
+        }
         if (android.content.Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
             rebuildOverlay();
+            if (AppPrefs.isClusterMirrorEnabled(this)) {
+                dismissClusterMirror();
+                ensureClusterMirror();
+            }
+            // 【新增·转向 HUD】日夜主题 / 分辨率变化后重算调光色与画布尺寸
+            refreshTurnSignalOverlay();
             return;
         }
         boolean targetBroadcastChanged = updateTargetBroadcastActivity(action);
@@ -1040,7 +1363,7 @@ public class OverlayService extends Service {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(14));
         int opacity = 0;
-        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
+        bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
 
@@ -1048,7 +1371,7 @@ public class OverlayService extends Service {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(clusterDp(14));
         int opacity = 0;
-        bg.setColor(withAlpha(nightPaletteBg(0), opacity));
+        bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
 
@@ -1094,11 +1417,6 @@ public class OverlayService extends Service {
         return isNightMode()
                 ? AmapConstants.PALETTE_PRIMARY_TEXT[1]   // white in night
                 : AppPrefs.usesDarkTextPalette(this) ? 0xFF0F172A : AmapConstants.PALETTE_PRIMARY_TEXT[0];
-    }
-
-    private int withAlpha(int color, int alphaPercent) {
-        int alpha = Math.max(0, Math.min(255, Math.round(alphaPercent * 255f / 100f)));
-        return (alpha << 24) | (color & 0x00FFFFFF);
     }
 
     private void syncModeVisibility() {
@@ -1264,6 +1582,22 @@ public class OverlayService extends Service {
         if (clusterLightRow != null) clusterLightRow.setOrientation(LinearLayout.HORIZONTAL);
         boolean showMainDirectionLabel = AppPrefs.isLightDirectionVisible(this);
         boolean showClusterDirectionLabel = AppPrefs.isLightDirectionVisible(this);
+        // ≤4s 呼吸动画：任一可见灯倒计时 ≤4s 时整体呼吸（alpha 0.25~1.0 正弦），tick 提速到 120ms
+        boolean breathingOn = AppPrefs.isLightBreathingEnabled(this);
+        boolean anyBreathing = false;
+        if (breathingOn) {
+            for (Map.Entry<Integer, TrafficLightParser.LightState> e : trafficLights.entrySet()) {
+                if (TrafficLightParser.currentLightSeconds(e.getValue(), now) <= 4) {
+                    anyBreathing = true;
+                    break;
+                }
+            }
+        }
+        float breathAlpha = 1f;
+        if (anyBreathing) {
+            double phase = (System.currentTimeMillis() % 1000L) / 1000.0;
+            breathAlpha = 0.25f + 0.75f * (float) Math.abs(Math.sin(phase * Math.PI));
+        }
         if (inCruiseMode) {
             int[][] slotDirGroups = {
                     {AmapConstants.DIR_LEFT, AmapConstants.DIR_UTURN,
@@ -1287,9 +1621,12 @@ public class OverlayService extends Service {
                     int sec = TrafficLightParser.currentLightSeconds(slotStates[si], now);
                     updateLightPillInPlace(cachedLightPills[si], slotStates[si],
                             showMainDirectionLabel, overlayScale, sec);
+                    // 呼吸动画：≤4s 呼吸，否则恢复完全不透明（缓存槽复用需显式复位）
+                    cachedLightPills[si].setAlpha(anyBreathing && sec <= 4 ? breathAlpha : 1f);
                     if (clusterLightRow != null && cachedClusterLightPills[si] != null) {
                         updateLightPillInPlace(cachedClusterLightPills[si], slotStates[si],
                                 showClusterDirectionLabel, clusterScale, sec);
+                        cachedClusterLightPills[si].setAlpha(anyBreathing && sec <= 4 ? breathAlpha : 1f);
                     }
                 } else {
                     if (cachedLightPills[si] != null) cachedLightPills[si].setVisibility(View.GONE);
@@ -1305,9 +1642,11 @@ public class OverlayService extends Service {
                 if (state == null) continue;
                 int sec = TrafficLightParser.currentLightSeconds(state, now);
                 View mainPill = lightPill(this, state, showMainDirectionLabel, overlayScale, sec, mainVertical);
+                if (anyBreathing && sec <= 4) mainPill.setAlpha(breathAlpha);
                 lightRow.addView(mainPill);
                 if (clusterLightRow != null && clusterContext != null) {
                     View clusterPill = lightPill(clusterContext, state, showClusterDirectionLabel, clusterScale, sec, clusterVertical);
+                    if (anyBreathing && sec <= 4) clusterPill.setAlpha(breathAlpha);
                     clusterLightRow.addView(clusterPill);
                 }
             }
@@ -1319,7 +1658,8 @@ public class OverlayService extends Service {
         }
         mainHandler.removeCallbacks(trafficLightTicker);
         if (!trafficLights.isEmpty()) {
-            mainHandler.postDelayed(trafficLightTicker, LIGHT_TICK_MS);
+            // 呼吸动画进行时 tick 提速到 120ms 保证流畅，平时维持 1s 省电
+            mainHandler.postDelayed(trafficLightTicker, anyBreathing ? 120L : LIGHT_TICK_MS);
         }
     }
 
@@ -1620,75 +1960,98 @@ public class OverlayService extends Service {
             stopOverspeedBlink();
             return;
         }
+        // 三档：超速 <=10% 黄框（往复）；10%~20% 红框（往复）；>20% 红框（常亮不歇）
         int level;
-        if (ratio >= 1.20f) {
-            level = OVERSPEED_HIGH;
-        } else if (ratio >= 1.10f) {
+        if (ratio <= 1.10f) {
+            level = mildOn ? OVERSPEED_MILD : OVERSPEED_NONE;
+        } else if (ratio <= 1.20f) {
             level = mediumOn ? OVERSPEED_MEDIUM : OVERSPEED_NONE;
         } else {
-            level = mildOn ? OVERSPEED_MILD : OVERSPEED_NONE;
+            level = mediumOn ? OVERSPEED_CRITICAL : OVERSPEED_NONE;
         }
         if (level == OVERSPEED_NONE) {
             stopOverspeedBlink();
+            return;
+        }
+        // 正处于 20s 隐藏等待期：P2-5 若档位升级（黄框→红框/常亮）立即打断等待期重新显示，
+        // 避免严重超速时红框缺失最长 20s；同级或降级则维持等待，避免无意义重启
+        if (overspeedOffPhase) {
+            if (level > overspeedLevel) {
+                startOverspeedShow(level, overspeedColorForLevel(level));
+            }
             return;
         }
         int color = overspeedColorForLevel(level);
         if (overspeedBlinks != null && overspeedLevel == level && overspeedColor == color) {
             return;
         }
-        startOverspeedBlink(level, color);
+        startOverspeedShow(level, color);
     }
 
     private int overspeedColorForLevel(int level) {
-        if (level == OVERSPEED_HIGH) return 0xFFFF0000;
-        if (level == OVERSPEED_MEDIUM) return 0xFFFFEB3B;
-        return 0xFFFFA500;
+        if (level == OVERSPEED_MILD) return 0xFFFFEB3B;     // 黄（超速 <=10%）
+        if (level == OVERSPEED_MEDIUM) return 0xFFFF0000;   // 红（超速 10%~20%） 往复
+        if (level == OVERSPEED_CRITICAL) return 0xFFFF0000; // 红（超速 >20%） 常亮
+        return 0;
     }
 
-    private void startOverspeedBlink(int level, int color) {
+    // 稳态显示 OVERSPEED_ON_MS，然后隐藏并进入 OVERSPEED_OFF_MS 等待期；
+    // 等待期结束后再次评估：若仍超速则重新显示，往复。
+    private void startOverspeedShow(int level, int color) {
         stopOverspeedBlink();
         overspeedLevel = level;
         overspeedColor = color;
-        overspeedBlinkOn = false;
-        overspeedBlinkPhase = false;
-        overspeedPhaseStartedAt = System.currentTimeMillis();
-        applyOverspeedBorder(color);
-        overspeedBlinks = new Runnable() {
-            private int blinkCount = 0;
-            private long startedAt = System.currentTimeMillis();
+        applyOverspeedBorder(color);   // 稳态边框，不闪烁
 
+        if (level == OVERSPEED_CRITICAL) {
+            // 常亮红框（超速 >20%）：不歇，持续循环，直到降到 20% 以下或开关关闭才交回往复/停止
+            overspeedBlinks = new Runnable() {
+                @Override
+                public void run() {
+                    int v = currentVehicleSpeed;
+                    int l = currentLimitSpeed;
+                    boolean mediumOn = AppPrefs.isOverspeedMediumWarningEnabled(OverlayService.this);
+                    float ratio = (l > 0 && v >= 0) ? ((float) v / l) : 0f;
+                    if (!mediumOn || l <= 0 || v <= l || ratio <= 1.20f) {
+                        // 退出常亮：开关关 / 回到限速内 / 降到 20% 以下 -> 交回正常逻辑
+                        overspeedBlinks = null;
+                        updateOverspeedWarning();
+                        return;
+                    }
+                    applyOverspeedBorder(color);   // 保持红框常亮
+                    mainHandler.postDelayed(this, 1000L);
+                }
+            };
+            mainHandler.postDelayed(overspeedBlinks, 1000L);
+            return;
+        }
+
+        // 往复档（黄框 / 红框 10%~20%）：稳态 5s -> 隐藏 -> 等 20s -> 再评估
+        final long onStartedAt = System.currentTimeMillis();
+        overspeedBlinks = new Runnable() {
             @Override
             public void run() {
-                long now = System.currentTimeMillis();
-                long elapsed = now - startedAt;
-                if (elapsed >= OVERSPEED_BLINK_MS) {
-                    stopOverspeedBlink();
+                long onElapsed = System.currentTimeMillis() - onStartedAt;
+                if (onElapsed < OVERSPEED_ON_MS) {
+                    mainHandler.postDelayed(this, 200L);
                     return;
                 }
-                // Rest between blink groups
-                long phaseElapsed = now - overspeedPhaseStartedAt;
-                int restMs;
-                if (level == OVERSPEED_MILD) {
-                    restMs = (int) OVERSPEED_MILD_REST_MS;
-                } else if (level == OVERSPEED_MEDIUM) {
-                    restMs = (int) OVERSPEED_MEDIUM_REST_MS;
-                } else {
-                    restMs = 0;
-                }
-                if (phaseElapsed >= OVERSPEED_BLINK_MS + restMs) {
-                    overspeedPhaseStartedAt = now;
-                    blinkCount = 0;
-                    phaseElapsed = 0;
-                }
-                if (phaseElapsed < OVERSPEED_BLINK_MS) {
-                    // Blink phase
-                    overspeedBlinkPhase = !overspeedBlinkPhase;
-                    applyOverspeedBorder(overspeedBlinkPhase ? color : 0);
-                }
-                mainHandler.postDelayed(this, 120L);
+                // 显示阶段结束 -> 隐藏边框，进入 20s 等待期
+                applyOverspeedBorder(0);
+                overspeedBlinks = null;
+                overspeedOffPhase = true;
+                overspeedOffRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        overspeedOffPhase = false;
+                        overspeedOffRunnable = null;
+                        updateOverspeedWarning();
+                    }
+                };
+                mainHandler.postDelayed(overspeedOffRunnable, OVERSPEED_OFF_MS);
             }
         };
-        mainHandler.postDelayed(overspeedBlinks, 120L);
+        mainHandler.postDelayed(overspeedBlinks, 200L);
     }
 
     private void stopOverspeedBlink() {
@@ -1696,9 +2059,12 @@ public class OverlayService extends Service {
             mainHandler.removeCallbacks(overspeedBlinks);
             overspeedBlinks = null;
         }
-        overspeedBlinkOn = false;
+        if (overspeedOffRunnable != null) {
+            mainHandler.removeCallbacks(overspeedOffRunnable);
+            overspeedOffRunnable = null;
+        }
+        overspeedOffPhase = false;
         overspeedLevel = OVERSPEED_NONE;
-        overspeedBlinkPhase = false;
         applyOverspeedBorder(0);
     }
 
@@ -1740,12 +2106,23 @@ public class OverlayService extends Service {
         boolean wasBroadcast = targetBroadcastActive;
         targetAppForeground = isTargetAppForeground();
         boolean oldNavActive = navigationOrCruiseActive;
-        navigationOrCruiseActive = (System.currentTimeMillis() - lastNavigationSignalAt) < NAVIGATION_ACTIVE_TTL_MS;
-        targetBroadcastActive = (System.currentTimeMillis() - lastTargetBroadcastAt) < TARGET_BROADCAST_ACTIVE_TTL_MS;
+        long now = System.currentTimeMillis();
+        // 巡航信号 TTL 更宽（45s），导航信号 TTL 较窄（12s），两者任一活跃即视为活跃
+        boolean cruiseActive = (now - lastCruiseSignalAt) < CRUISE_ACTIVE_TTL_MS;
+        boolean navActive = (now - lastNavigationSignalAt) < NAVIGATION_ACTIVE_TTL_MS;
+        navigationOrCruiseActive = cruiseActive || navActive;
+        targetBroadcastActive = (now - lastTargetBroadcastAt) < TARGET_BROADCAST_ACTIVE_TTL_MS;
         boolean navJustBecameInactive = oldNavActive && !navigationOrCruiseActive;
         boolean navJustBecameActive = !oldNavActive && navigationOrCruiseActive;
         if (navJustBecameInactive || navJustBecameActive) {
             Log.d(TAG, "navigation/cruise state changed: active=" + navigationOrCruiseActive);
+        }
+        if (navJustBecameInactive) {
+            // P2-6：导航/巡航退出后清空限速与车速缓存（LIMITED_SPEED 广播已停），
+            // 避免基于过期限速的超速边框误报残留
+            currentLimitSpeed = -1;
+            currentVehicleSpeed = -1;
+            updateOverspeedWarning();
         }
         if (wasForeground != targetAppForeground || wasBroadcast != targetBroadcastActive) {
             Log.d(TAG, "display policy changed: targetFg=" + targetAppForeground + " broadcast=" + targetBroadcastActive);
@@ -1763,8 +2140,9 @@ public class OverlayService extends Service {
 
     private boolean shouldHideClusterMirrorForInactiveNavigation() {
         if (!AppPrefs.isClusterMirrorEnabled(this)) return true;
-        
-        return !navigationOrCruiseActive;
+        // 选项"导航/巡航退出隐藏仪表"：勾选=导航退出即隐藏；不勾=副屏常驻
+        if (AppPrefs.isHideClusterWhenInactiveEnabled(this)) return !navigationOrCruiseActive;
+        return false;
     }
 
     private boolean updateTargetBroadcastActivity(String action) {
@@ -1784,7 +2162,13 @@ public class OverlayService extends Service {
         int state = intValue(extras, "EXTRA_STATE", -1);
         boolean wasActive = navigationOrCruiseActive;
         if (isNavigationActivitySignal(extras, keyType, state)) {
-            lastNavigationSignalAt = System.currentTimeMillis();
+            long now = System.currentTimeMillis();
+            // 巡航型信号（红绿灯倒计时 / 巡航状态）单独记录时间戳，用更宽的巡航 TTL
+            if (isCruiseTypeSignal(extras, keyType)) {
+                lastCruiseSignalAt = now;
+            } else {
+                lastNavigationSignalAt = now;
+            }
             navigationOrCruiseActive = true;
         }
         boolean changed = wasActive != navigationOrCruiseActive;
@@ -1792,6 +2176,15 @@ public class OverlayService extends Service {
             Log.d(TAG, "nav activity: wasActive=" + wasActive + " nowActive=" + navigationOrCruiseActive);
         }
         return changed;
+    }
+
+    /** 巡航型信号：红绿灯倒计时 / 巡航状态类广播（频率低，需更长 TTL） */
+    private boolean isCruiseTypeSignal(Bundle extras, int keyType) {
+        if (keyType == AmapConstants.KEY_TYPE_TRAFFIC_LIGHT) return true;
+        return extras != null && (extras.containsKey("trafficLightStatus")
+                || extras.containsKey("redLightCountDownSeconds")
+                || extras.containsKey("greenLightLastSecond")
+                || extras.containsKey("traffic_light_status"));
     }
 
     private boolean isNavigationActivitySignal(Bundle extras, int keyType, int state) {

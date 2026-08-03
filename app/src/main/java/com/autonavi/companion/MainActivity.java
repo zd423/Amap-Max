@@ -4,8 +4,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.AppOpsManager;
-// import android.content.ClipData;      [REMOVED 2026-06-23]
-// import android.content.ClipboardManager; [REMOVED 2026-06-23]
 import android.content.Context;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -26,7 +24,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-// import android.os.Environment; [REMOVED 2026-06-23]
 import android.os.Process;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -45,6 +42,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
+import android.widget.SeekBar;   // 【新增·转向 HUD】滑杆控件
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -67,24 +65,55 @@ public class MainActivity extends Activity {
     static final String CUSTOM_MAP_SKILL_MIRROR_URL = "https://gh-proxy.com/https://github.com/zuo-qirun/amap-cruise-wrapper-skill/archive/refs/heads/master.zip";
     static final String CUSTOM_MAP_APK_MIRROR_URL = "https://gh.llkk.cc/https://github.com/zuo-qirun/amap-cruise-wrapper-skill/releases/download/v20260523-cruise-wrapper/amap-auto-cruise-wrapper-20260523.apk";
     private static final String TARGET_PACKAGE_PREFIX = "com.autonavi.";
-    // [REMOVED 2026-06-23] REQUEST_READ_LOGS_PERMISSION / REQUEST_STORAGE_PERMISSIONS
 
     private TextView targetText;
     private TextView clusterDisplayText;
     private TextView coordTextX;
     private TextView coordTextY;
-    private Button overlayTextModeButton;
-    private Button overlayUiStyleButton;
+    private TextView overlayTextModeValue;
+    private TextView overlayUiStyleValue;
+
+    // ── 转向 HUD 摘要卡引用（BUG-1 修复：形状/特效/透明度变更后同步刷新摘要）──
+    private TextView turnSummaryView;
+
+    // ── 伙伴服务开关引用（P2-1/P2-2：onResume 刷新 + onDestroy 清理）──
+    private IosSwitch serviceSwitch;
+    private final Runnable serviceSwitchRefresh = new Runnable() {
+        @Override
+        public void run() {
+            if (serviceSwitch != null) {
+                serviceSwitch.setChecked(isServiceRunning(OverlayService.class), true);
+            }
+        }
+    };
+
+    // ── iPad 式左右分栏状态 ──
+    private ScrollView contentScroll;          // 右侧内容滚动容器
+    private LinearLayout pageContent;          // 右侧当前页内容（切换时重建）
+    private final java.util.ArrayList<TextView> sidebarItems = new java.util.ArrayList<>();
+    private int currentPage = 0;
+    private static final String[] SIDEBAR_TITLES = {"通用设置", "悬浮窗口", "副屏设置", "极狐转向"};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 一次性迁移：旧版默认 safe_left=34（1/3 固定仪表区避让）→ 新版默认 0（1300×900 全屏对称）
+        AppPrefs.migrateSafeLeftIfLegacyDefault(this);
+        // 车机级横屏大屏（宽≥1200 横屏，适配 1300×900 极狐 αS5）：放大 scaledDensity 使 sp 字号整体放大 1.15 倍
+        // 只改 scaledDensity 不动 density → 字体变大、dp 间距/控件尺寸不变，布局不溢出
+        if (isCarScreen()) {
+            getResources().getDisplayMetrics().scaledDensity *= uiFontScale();
+        }
         if (redirectDesktopLaunchToTarget(getIntent())) {
             return;
         }
         View content = buildContent();
         setContentView(content);
         autoStartServiceOnAppOpen();
+        // 伙伴服务默认开启：已授权悬浮窗时自动拉起 OverlayService，开关初始即 true
+        if (Settings.canDrawOverlays(this) && !isServiceRunning(OverlayService.class)) {
+            startOverlayService();
+        }
     }
 
     @Override
@@ -97,17 +126,27 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // If service was killed externally, restart it if any overlay should be active
-        if (AppPrefs.isClusterMirrorEnabled(this) || AppPrefs.isMainOverlayEnabled(this)) {
-            if (!isServiceRunning(OverlayService.class)) {
-                startOverlayService();
-            }
+        // 伙伴服务默认开启：已授权悬浮窗时自动拉起 OverlayService（与 onCreate 同条件，覆盖"授权悬浮窗返回"场景）
+        if (Settings.canDrawOverlays(this) && !isServiceRunning(OverlayService.class)) {
+            startOverlayService();
+        }
+        // 服务启动是异步的，延迟按真实运行状态刷新开关（授权返回后立即变绿）
+        if (serviceSwitch != null) {
+            serviceSwitch.postDelayed(serviceSwitchRefresh, 500);
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (serviceSwitch != null) {
+            serviceSwitch.removeCallbacks(serviceSwitchRefresh);
+        }
+        super.onDestroy();
     }
 
     private void autoStartServiceOnAppOpen() {
@@ -117,25 +156,19 @@ public class MainActivity extends Activity {
         targetText.postDelayed(() -> startCompanionService(false), 350L);
     }
 
-    private ScrollView buildContent() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFFF3F6FA);
-        boolean wideLayout = isWideLayout();
-
+    private LinearLayout buildContent() {
+        // iPad 式左右分栏：整个页面不再整体滚动，改为右侧内容区独立滚动
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(22), dp(18), dp(24));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+        root.setBackgroundColor(bgColor()); // iOS 分组背景
+        root.setPadding(dp(20), dp(18), dp(20), dp(20));
 
-        LinearLayout hero = card(0xFF111827);
-        root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
-
+        // ── iOS 18 大标题页头（原深色 hero 卡）──
         TextView title = new TextView(this);
         title.setText("AMap Max");
-        title.setTextSize(28f);
+        title.setTextSize(34f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(labelColor());
         title.setOnClickListener(v -> {
             try {
                 Intent intent = new Intent();
@@ -154,98 +187,321 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        hero.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
-        // [MODIFIED] 2026-06-25 目标应用和包名合并一行，双色显示
         targetText = new TextView(this);
-        targetText.setTextSize(14f);
+        targetText.setTextSize(13f);
         LinearLayout.LayoutParams targetTextLp = new LinearLayout.LayoutParams(-1, -2);
-        targetTextLp.setMargins(0, dp(8), 0, 0);
-        hero.addView(targetText, targetTextLp);
+        targetTextLp.setMargins(0, dp(4), 0, 0);
+        root.addView(targetText, targetTextLp);
         updateTargetText();
 
-        // [ADDED] 2026-06-24 编译时间版本号
-        LinearLayout versionRow = new LinearLayout(this);
-        versionRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        TextView versionText = new TextView(this);
-        versionText.setTextSize(14f);
-        versionText.setTextColor(0xFFEF4444);
-        versionText.setText("Build: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(new java.util.Date()));
-        versionRow.addView(versionText, new LinearLayout.LayoutParams(-2, -2));
-
-        TextView authorText = new TextView(this);
-        authorText.setTextSize(14f);
-        authorText.setTextColor(0xFFEF4444);
-        int padLeft = dp(8);
-        authorText.setPadding(padLeft, 0, 0, 0);
-        authorText.setText("by zd423");
-        versionRow.addView(authorText, new LinearLayout.LayoutParams(-2, -2));
-
-        LinearLayout.LayoutParams versionLp = new LinearLayout.LayoutParams(-1, -2);
-        versionLp.setMargins(0, dp(8), 0, 0);
-        hero.addView(versionRow, versionLp);
-
-        // [REMOVED] 2026-06-13 公告区块（空白色卡片）已删除
-        // addAnnouncementSection(root);
-
-
+        // ── iPad 式左右分栏：左侧侧边栏 + 右侧内容区 ──
+        // 【1300×900 全屏适配】中控整屏 1300×900，UI 从 x=0 全屏铺满，不做左侧避让
         LinearLayout contentArea = new LinearLayout(this);
-        contentArea.setOrientation(wideLayout ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, -2);
+        contentArea.setOrientation(LinearLayout.HORIZONTAL);
+        contentArea.setBaselineAligned(false);
+        LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, 0, 1f);
         contentLp.setMargins(0, dp(14), 0, 0);
         root.addView(contentArea, contentLp);
 
-        LinearLayout leftColumn = new LinearLayout(this);
-        leftColumn.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(-1, -2);
-        if (wideLayout) {
-            leftLp = new LinearLayout.LayoutParams(0, -2, 1f);
-            leftLp.setMargins(0, 0, dp(7), 0);
+        // 左侧：固定宽度侧边栏（iPad 设置风格），高度撑满
+        // 【菜单收窄】4 个 4 字菜单项用 160~176dp 已足够，避免过宽挤占内容区
+        LinearLayout sidebar = buildSidebar();
+        contentArea.addView(sidebar, new LinearLayout.LayoutParams(dp(isWideLayout() ? 176 : 160), -1));
+
+        // 右侧：内容面板（weight=1），内部独立滚动
+        LinearLayout contentPanel = new LinearLayout(this);
+        contentPanel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams panelLp = new LinearLayout.LayoutParams(0, -1, 1f);
+        panelLp.setMarginStart(dp(14));
+        contentArea.addView(contentPanel, panelLp);
+
+        contentScroll = new ScrollView(this);
+        contentScroll.setFillViewport(true);
+        contentScroll.setClipToPadding(false);
+        pageContent = new LinearLayout(this);
+        pageContent.setOrientation(LinearLayout.VERTICAL);
+        contentScroll.addView(pageContent, new ScrollView.LayoutParams(-1, -2));
+        contentPanel.addView(contentScroll, new LinearLayout.LayoutParams(-1, -1));
+
+        // 默认选中第一页
+        showPage(0);
+
+        return root;
+    }
+
+    /** 左侧侧边栏：菜单分类 + iOS 选中高亮胶囊 */
+    private LinearLayout buildSidebar() {
+        LinearLayout sidebar = new LinearLayout(this);
+        sidebar.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(cardColor());
+        bg.setCornerRadius(dp(16));
+        sidebar.setBackground(bg);
+        sidebar.setPadding(dp(6), dp(8), dp(6), dp(8));
+
+        for (int i = 0; i < SIDEBAR_TITLES.length; i++) {
+            TextView item = new TextView(this);
+            item.setText(SIDEBAR_TITLES[i]);
+            item.setTextSize(16f);
+            item.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+            item.setTextColor(labelColor());
+            item.setGravity(Gravity.CENTER_VERTICAL);
+            item.setPadding(dp(16), dp(13), dp(16), dp(13));
+            item.setClickable(true);
+            item.setFocusable(true);
+            final int idx = i;
+            item.setOnClickListener(v -> showPage(idx));
+            sidebarItems.add(item);
+            sidebar.addView(item, new LinearLayout.LayoutParams(-1, -2));
         }
-        contentArea.addView(leftColumn, leftLp);
 
-        LinearLayout rightColumn = new LinearLayout(this);
-        rightColumn.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(-1, -2);
-        if (wideLayout) {
-            rightLp = new LinearLayout.LayoutParams(0, -2, 1f);
-            rightLp.setMargins(dp(7), 0, 0, 0);
-        } else {
-            rightLp.setMargins(0, dp(14), 0, 0);
+        // ── 侧边栏底部：弹性留白 + Build 信息 ──
+        View spacer = new View(this);
+        sidebar.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        // Build 版本信息
+        TextView buildInfo = new TextView(this);
+        buildInfo.setText("Build " + com.autonavi.companion.BuildConfig.BUILD_TIME);
+        buildInfo.setTextSize(11f);
+        buildInfo.setTextColor(secondaryColor());
+        buildInfo.setGravity(Gravity.CENTER);
+        buildInfo.setPadding(0, dp(8), 0, dp(6));
+        sidebar.addView(buildInfo, new LinearLayout.LayoutParams(-1, -2));
+
+        updateSidebarSelection();
+        return sidebar;
+    }
+
+    /** 切换右侧页面并刷新侧边栏选中态 */
+    private void showPage(int index) {
+        currentPage = index;
+        pageContent.removeAllViews();
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(20));
+        switch (index) {
+            case 0: // 通用设置
+                addActionButtons(pageContent, false);
+                addBehaviorControls(pageContent);
+                break;
+            case 1: // 悬浮窗口
+                addScaleControls(pageContent);
+                addOverlayContentControls(pageContent);
+                break;
+            case 2: // 副屏设置
+                addClusterMirrorControls(pageContent);
+                break;
+            case 3: // 极狐转向
+                addTurnSignalEntry(pageContent);
+                break;
+            default:
+                addActionButtons(pageContent, false);
+                break;
         }
-        contentArea.addView(rightColumn, rightLp);
+        updateSidebarSelection();
+        if (contentScroll != null) {
+            contentScroll.scrollTo(0, 0);
+        }
+    }
 
-        LinearLayout actions = card(Color.WHITE);
-        leftColumn.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-        addActionButtons(actions, wideLayout);
-
-        // [ADDED] 2026-06-23 自动启动与显示策略移到左侧
-        LinearLayout behaviorCard = card(Color.WHITE);
-        LinearLayout.LayoutParams behaviorLp = new LinearLayout.LayoutParams(-1, -2);
-        behaviorLp.setMargins(0, dp(14), 0, 0);
-        leftColumn.addView(behaviorCard, behaviorLp);
-        addBehaviorControls(behaviorCard);
-
-        LinearLayout settings = card(Color.WHITE);
-        rightColumn.addView(settings, new LinearLayout.LayoutParams(-1, -2));
-        addScaleControls(settings);
-        addClusterMirrorControls(settings);
-        addOverlayContentControls(settings);
-
-        // [ADDED] 2026-06-23 悬浮窗样式和文字模式移到右侧
-        LinearLayout styleCard = card(Color.WHITE);
-        LinearLayout.LayoutParams styleLp = new LinearLayout.LayoutParams(-1, -2);
-        styleLp.setMargins(0, dp(14), 0, 0);
-        rightColumn.addView(styleCard, styleLp);
-        addStyleAndModeControls(styleCard);
-        // [REMOVED] 2026-06-11 开源信息区块已删除
-
-        return scroll;
+    /** 侧边栏选中态：蓝底白字圆角胶囊 */
+    private void updateSidebarSelection() {
+        for (int i = 0; i < sidebarItems.size(); i++) {
+            TextView item = sidebarItems.get(i);
+            boolean sel = i == currentPage;
+            item.setTextColor(sel ? 0xFFFFFFFF : labelColor());
+            item.setTypeface(Typeface.DEFAULT, sel ? Typeface.BOLD : Typeface.NORMAL);
+            GradientDrawable d = new GradientDrawable();
+            d.setColor(sel ? 0xFF007AFF : 0x00FFFFFF);
+            d.setCornerRadius(dp(10));
+            item.setBackground(d);
+        }
     }
 
     private void addActionButtons(LinearLayout parent, boolean wideLayout) {
-        // 圆角边框卡片
+        // iOS 分组：区段标题 + 白色分组卡
+        parent.addView(sectionHeader("通用设置"), new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
+
+        // 选择目标应用（右侧显示当前包名）
+        card.addView(listRow("选择目标应用", AppPrefs.getTargetPackage(this), this::chooseTargetApp),
+                new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+        // 授权悬浮窗
+        card.addView(listRow("授权悬浮窗", null, this::requestOverlayPermission),
+                new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+        // 打开目标应用
+        card.addView(listRow("打开目标应用", null, this::openTargetApp),
+                new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+        // 伙伴服务：iOS 开关行，运行状态即开关状态
+        serviceSwitch = new IosSwitch(this);
+        boolean serviceRunning = isServiceRunning(OverlayService.class);
+        serviceSwitch.setChecked(serviceRunning, false);
+        // 【2026-08-03 审查修复 P2-2】初始态与自启 prefs 保持一致：
+        // 开关显示什么，auto_start / start_on_app_open 就写什么，避免
+        // 「开关显示关但 prefs 默认 true」导致的开机静默自启（UI 与行为不一致）。
+        saveBehaviorEnabled(AppPrefs.KEY_AUTO_START_ENABLED, serviceRunning);
+        saveBehaviorEnabled(AppPrefs.KEY_START_SERVICE_ON_APP_OPEN, serviceRunning);
+        // 服务启动是异步的，延迟按真实运行状态刷新开关（默认开启场景下变为绿色）
+        serviceSwitch.postDelayed(serviceSwitchRefresh, 500);
+        serviceSwitch.setOnCheckedChangeListener((s, checked) -> {
+            // 【2026-08-03 用户要求】开机自启与伙伴服务开关联动：
+            // 开关开 = 服务跑 + 开机自启/打开应用自启生效；开关关 = 服务停 + 全部自启关闭。
+            // （此前 auto_start / start_on_app_open 两个 key 默认 true 但无独立 UI 开关，
+            //   用户希望"伙伴服务开着才自启"，故跟随主开关一并写入。）
+            saveBehaviorEnabled(AppPrefs.KEY_AUTO_START_ENABLED, checked);
+            saveBehaviorEnabled(AppPrefs.KEY_START_SERVICE_ON_APP_OPEN, checked);
+            if (checked) {
+                startCompanionService();
+            } else {
+                stopCompanionService();
+            }
+            s.postDelayed(serviceSwitchRefresh, 500);
+        });
+        LinearLayout serviceRow = settingRow("伙伴服务开关", serviceSwitch);
+        serviceRow.setClickable(true);
+        serviceRow.setFocusable(true);
+        serviceRow.setBackground(rowPress());
+        serviceRow.setOnClickListener(v -> serviceSwitch.toggle());
+        card.addView(serviceRow, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(12));
+        parent.addView(card, lp);
+    }
+
+    /** 分组内分隔线 View（配合 sepLp 使用，iOS 左缩进分隔线） */
+    private View sep() {
+        View v = new View(this);
+        v.setBackgroundColor(separatorColor());
+        return v;
+    }
+
+    /** 分组内分隔线的 LayoutParams（左缩进对齐文字） */
+    private LinearLayout.LayoutParams sepLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(1));
+        lp.setMargins(dp(16), 0, 0, 0);
+        return lp;
+    }
+    // ══════════════════════════════════════════════════════════════════════
+    //  【新增·转向 HUD】设置卡片（arcfox-turn-hud 移植）
+    //  说明：原版 res/layout/panel_turn_signal_overlay.xml 依赖 MaterialCardView /
+    //  SwitchCompat，而本工程编译期 classpath 只有 android.jar（无 AndroidX / Material），
+    //  故不使用该 XML，改为沿用本页既有的「动态 Java 构建 + 原生控件」写法。
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** 特效模式名称，索引 = AppPrefs.KEY_TURN_SIGNAL_EFFECT 的值 */
+    private static final String[] TURN_EFFECT_NAMES = {
+            "线性衰减", "波形脉冲", "流动追光", "正弦呼吸", "粒子拖尾", "双向流光"
+    };
+
+    /** 箭头形状名称，索引 = AppPrefs.KEY_TURN_SIGNAL_SHAPE 的值 */
+    private static final String[] TURN_SHAPE_NAMES = {
+            "V形箭头", "流水灯带", "实心箭头"
+    };
+
+    /** 预设箭头配色（首项为原厂默认荧光青绿） */
+    private static final int[] TURN_COLOR_PRESETS = {
+            0xFF35E889, 0xFF00E5FF, 0xFFFFC400, 0xFFFF3B30, 0xFFFFFFFF, 0xFFB388FF
+    };
+
+    private TextView turnEffectValue;
+    private TextView turnShapeValue;
+    private LinearLayout turnColorRow;
+
+    /** iOS 18 风格入口卡：总开关留在主设置页，点卡片进底部弹窗做详细设置 */
+    private void addTurnSignalEntry(LinearLayout parent) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(cardColor());
+        bg.setCornerRadius(dp(16));
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(bg);
+
+        // 顶部：标题 + iOS 开关
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(14), dp(12), dp(12), dp(12));
+
+        LinearLayout textWrap = new LinearLayout(this);
+        textWrap.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("极狐转向");
+        title.setTextSize(16f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(labelColor());
+        TextView sub = new TextView(this);
+        sub.setText("屏幕两侧绘制流动转向箭头");
+        sub.setTextSize(12f);
+        sub.setTextColor(secondaryColor());
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+        subLp.setMargins(0, dp(2), 0, 0);
+        textWrap.addView(title);
+        textWrap.addView(sub, subLp);
+        top.addView(textWrap, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(AppPrefs.isTurnSignalOverlayEnabled(this));
+        sw.setOnCheckedChangeListener((s, checked) -> {
+            AppPrefs.setTurnSignalOverlayEnabled(this, checked);
+            if (checked) {
+                startOverlayService();
+            }
+            notifyTurnSignalChanged();
+            if (!checked) {
+                stopServiceIfNoVisuals();
+            }
+        });
+        top.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        card.addView(top);
+
+        // 分隔线
+        View sep = new View(this);
+        sep.setBackgroundColor(separatorColor());
+        LinearLayout.LayoutParams sepLp = new LinearLayout.LayoutParams(-1, dp(1));
+        sepLp.setMargins(dp(14), 0, 0, 0);
+        card.addView(sep, sepLp);
+
+        // 详情行：摘要 + 箭头，点开弹窗
+        LinearLayout detail = new LinearLayout(this);
+        detail.setOrientation(LinearLayout.HORIZONTAL);
+        detail.setGravity(Gravity.CENTER_VERTICAL);
+        detail.setPadding(dp(14), dp(12), dp(12), dp(12));
+        detail.setClickable(true);
+        detail.setFocusable(true);
+        TextView summary = new TextView(this);
+        summary.setText(buildTurnSummary());
+        summary.setTextSize(13f);
+        summary.setTextColor(secondaryColor());
+        turnSummaryView = summary;   // BUG-1 修复：保存引用供设置变更后刷新
+        detail.addView(summary, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView chev = new TextView(this);
+        chev.setText("›");
+        chev.setTextSize(22f);
+        chev.setTextColor(chevronColor());
+        detail.addView(chev, new LinearLayout.LayoutParams(-2, -2));
+        detail.setOnClickListener(v -> TurnSignalSettingsSheet.show(this));
+        card.addView(detail);
+
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
+        clp.setMargins(0, 0, 0, dp(12));
+        parent.addView(card, clp);
+    }
+
+    private String buildTurnSummary() {
+        return turnShapeName(AppPrefs.getTurnSignalShape(this))
+                + " · " + turnEffectName(AppPrefs.getTurnSignalEffect(this))
+                + " · 透明度 " + AppPrefs.getTurnSignalAlpha(this) + "%";
+    }
+
+    private void addTurnSignalControls(LinearLayout parent) {
         GradientDrawable cardBg = new GradientDrawable();
         cardBg.setColor(0xFFF8FAFC);
         cardBg.setCornerRadius(dp(12));
@@ -256,454 +512,716 @@ public class MainActivity extends Activity {
         card.setBackground(cardBg);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
 
-        if (wideLayout) {
-            addButtonPair(card,
-                    button("\u9009\u62e9\u76ee\u6807\u5e94\u7528", v -> chooseTargetApp(), 0xFF3B82F6),
-                    button("\u6388\u6743\u60ac\u6d6e\u7a97", v -> requestOverlayPermission(), 0xFF60A5FA));
-            addButtonPair(card,
-                    button("\u542f\u52a8\u4f34\u4fa3\u670d\u52a1", v -> startCompanionService(), 0xFF10B981),
-                    button("\u5173\u95ed\u4f34\u4fa3\u670d\u52a1", v -> stopCompanionService(), 0xFFF59E0B));
-            card.addView(button("\u6253\u5f00\u76ee\u6807\u5e94\u7528", v -> openTargetApp(), 0xFF6366F1));
+        // ── 标题行：标题 + 总开关 ──────────────────────────────────────
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
 
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.setMargins(0, 0, 0, dp(10));
-            parent.addView(card, lp);
+        TextView title = new TextView(this);
+        title.setText("转向灯 HUD");
+        title.setTextSize(14f);
+        title.setTextColor(labelColor());
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        titleRow.addView(title, new LinearLayout.LayoutParams(-2, -2));
 
-            // [ADDED] 2026-06-23 \u526f\u5c4f\u65b9\u5411\u952e+\u5750\u6807\u5361\u7247\uff08\u5706\u89d2\u8fb9\u6846\uff09
-            addClusterDirectionCard(parent);
-            return;
+        View titleSpacer = new View(this);
+        titleRow.addView(titleSpacer, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        CheckBox enableToggle = new CheckBox(this);
+        enableToggle.setText("启用");
+        enableToggle.setTextSize(14f);
+        enableToggle.setTextColor(labelColor());
+        enableToggle.setChecked(AppPrefs.isTurnSignalOverlayEnabled(this));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            enableToggle.setButtonTintList(
+                    android.content.res.ColorStateList.valueOf(0xFF2563EB));
         }
-        card.addView(button("\u9009\u62e9\u76ee\u6807\u5e94\u7528", v -> chooseTargetApp(), 0xFF3B82F6));
-        card.addView(button("\u6388\u6743\u60ac\u6d6e\u7a97", v -> requestOverlayPermission(), 0xFF60A5FA));
-        card.addView(button("\u542f\u52a8\u4f34\u4fa3\u670d\u52a1", v -> startCompanionService(), 0xFF10B981));
-        card.addView(button("\u5173\u95ed\u4f34\u4fa3\u670d\u52a1", v -> stopCompanionService(), 0xFFF59E0B));
-        card.addView(button("\u6253\u5f00\u76ee\u6807\u5e94\u7528", v -> openTargetApp(), 0xFF6366F1));
+        enableToggle.setOnCheckedChangeListener((CompoundButton v, boolean checked) -> {
+            AppPrefs.setTurnSignalOverlayEnabled(this, checked);
+            if (checked) {
+                // 打开时必须确保服务在跑，否则 logcat 监控线程不存在
+                startOverlayService();
+            }
+            notifyTurnSignalChanged();
+            if (!checked) {
+                stopServiceIfNoVisuals();
+            }
+        });
+        titleRow.addView(enableToggle, new LinearLayout.LayoutParams(-2, -2));
+        card.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, dp(10));
-        parent.addView(card, lp);
+        // ── 说明副标题 ────────────────────────────────────────────────
+        TextView hint = new TextView(this);
+        hint.setText("读取车机 CAN 转向灯状态，在屏幕两侧绘制流动箭头");
+        hint.setTextSize(11f);
+        hint.setTextColor(secondaryColor());
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
+        hintLp.setMargins(0, dp(2), 0, dp(8));
+        card.addView(hint, hintLp);
 
-        // [ADDED] 2026-06-23 副屏方向键+坐标卡片（竖屏分\u652f）
-        addClusterDirectionCard(parent);
+        // ── 箭头颜色（预设色块） ──────────────────────────────────────
+        LinearLayout colorRow = new LinearLayout(this);
+        colorRow.setOrientation(LinearLayout.HORIZONTAL);
+        colorRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView colorLabel = new TextView(this);
+        colorLabel.setText("箭头颜色");
+        colorLabel.setTextSize(13f);
+        colorLabel.setTextColor(labelColor());
+        colorLabel.setMinWidth(dp(64));
+        colorRow.addView(colorLabel, new LinearLayout.LayoutParams(-2, -2));
+
+        turnColorRow = new LinearLayout(this);
+        turnColorRow.setOrientation(LinearLayout.HORIZONTAL);
+        turnColorRow.setGravity(Gravity.CENTER_VERTICAL);
+        for (int preset : TURN_COLOR_PRESETS) {
+            turnColorRow.addView(buildTurnColorChip(preset));
+        }
+        LinearLayout.LayoutParams colorRowLp = new LinearLayout.LayoutParams(-1, -2);
+        colorRowLp.setMarginStart(dp(4));
+        colorRow.addView(turnColorRow, colorRowLp);
+
+        LinearLayout.LayoutParams colorLp = new LinearLayout.LayoutParams(-1, -2);
+        colorLp.setMargins(0, dp(2), 0, dp(6));
+        card.addView(colorRow, colorLp);
+
+        // ── 箭头形状（对话框单选） ────────────────────────────────────
+        LinearLayout shapeRow = new LinearLayout(this);
+        shapeRow.setOrientation(LinearLayout.HORIZONTAL);
+        shapeRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView shapeLabel = new TextView(this);
+        shapeLabel.setText("箭头形状");
+        shapeLabel.setTextSize(13f);
+        shapeLabel.setTextColor(labelColor());
+        shapeLabel.setMinWidth(dp(64));
+        shapeRow.addView(shapeLabel, new LinearLayout.LayoutParams(-2, -2));
+
+        turnShapeValue = new TextView(this);
+        turnShapeValue.setTextSize(13f);
+        turnShapeValue.setTextColor(0xFF2563EB);
+        turnShapeValue.setPadding(dp(10), dp(6), dp(10), dp(6));
+        GradientDrawable shapeBg = new GradientDrawable();
+        shapeBg.setColor(0xFFEFF6FF);
+        shapeBg.setCornerRadius(dp(6));
+        shapeBg.setStroke(dp(1), 0xFFBFDBFE);
+        turnShapeValue.setBackground(shapeBg);
+        turnShapeValue.setText(turnShapeName(AppPrefs.getTurnSignalShape(this)));
+        turnShapeValue.setOnClickListener(v -> showTurnShapeDialog());
+        LinearLayout.LayoutParams shapeValueLp = new LinearLayout.LayoutParams(-2, -2);
+        shapeValueLp.setMarginStart(dp(4));
+        shapeRow.addView(turnShapeValue, shapeValueLp);
+
+        LinearLayout.LayoutParams shapeLp = new LinearLayout.LayoutParams(-1, -2);
+        shapeLp.setMargins(0, 0, 0, dp(4));
+        card.addView(shapeRow, shapeLp);
+
+        // ── 动画特效（对话框单选） ────────────────────────────────────
+        LinearLayout effectRow = new LinearLayout(this);
+        effectRow.setOrientation(LinearLayout.HORIZONTAL);
+        effectRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView effectLabel = new TextView(this);
+        effectLabel.setText("动画特效");
+        effectLabel.setTextSize(13f);
+        effectLabel.setTextColor(labelColor());
+        effectLabel.setMinWidth(dp(64));
+        effectRow.addView(effectLabel, new LinearLayout.LayoutParams(-2, -2));
+
+        turnEffectValue = new TextView(this);
+        turnEffectValue.setTextSize(13f);
+        turnEffectValue.setTextColor(0xFF2563EB);
+        turnEffectValue.setPadding(dp(10), dp(6), dp(10), dp(6));
+        GradientDrawable effectBg = new GradientDrawable();
+        effectBg.setColor(0xFFEFF6FF);
+        effectBg.setCornerRadius(dp(6));
+        effectBg.setStroke(dp(1), 0xFFBFDBFE);
+        turnEffectValue.setBackground(effectBg);
+        turnEffectValue.setText(turnEffectName(AppPrefs.getTurnSignalEffect(this)));
+        turnEffectValue.setOnClickListener(v -> showTurnEffectDialog());
+        LinearLayout.LayoutParams effectValueLp = new LinearLayout.LayoutParams(-2, -2);
+        effectValueLp.setMarginStart(dp(4));
+        effectRow.addView(turnEffectValue, effectValueLp);
+
+        LinearLayout.LayoutParams effectLp = new LinearLayout.LayoutParams(-1, -2);
+        effectLp.setMargins(0, 0, 0, dp(4));
+        card.addView(effectRow, effectLp);
+
+        // ── 四条滑杆 ──────────────────────────────────────────────────
+        card.addView(buildTurnSeekRow("透明度", AppPrefs.KEY_TURN_SIGNAL_ALPHA,
+                AppPrefs.MIN_TURN_SIGNAL_ALPHA, AppPrefs.MAX_TURN_SIGNAL_ALPHA,
+                AppPrefs.getTurnSignalAlpha(this)));
+        card.addView(buildTurnSeekRow("箭头尺寸", AppPrefs.KEY_TURN_SIGNAL_SIZE,
+                AppPrefs.MIN_TURN_SIGNAL_SIZE, AppPrefs.MAX_TURN_SIGNAL_SIZE,
+                AppPrefs.getTurnSignalSize(this)));
+        card.addView(buildTurnSeekRow("垂直位置", AppPrefs.KEY_TURN_SIGNAL_TOP,
+                AppPrefs.MIN_TURN_SIGNAL_TOP, AppPrefs.MAX_TURN_SIGNAL_TOP,
+                AppPrefs.getTurnSignalTop(this)));
+        card.addView(buildTurnSeekRow("左右内缩", AppPrefs.KEY_TURN_SIGNAL_HORIZONTAL,
+                AppPrefs.MIN_TURN_SIGNAL_HORIZONTAL, AppPrefs.MAX_TURN_SIGNAL_HORIZONTAL,
+                AppPrefs.getTurnSignalHorizontal(this)));
+
+        // ── 预览按钮 ──────────────────────────────────────────────────
+        LinearLayout previewRow = new LinearLayout(this);
+        previewRow.setOrientation(LinearLayout.HORIZONTAL);
+        previewRow.addView(buildTurnPreviewButton("← 左转", "left"));
+        previewRow.addView(buildTurnPreviewButton("右转 →", "right"));
+        previewRow.addView(buildTurnPreviewButton("双闪", "hazard"));
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
+        previewLp.setMargins(0, dp(8), 0, 0);
+        card.addView(previewRow, previewLp);
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(12));
+        parent.addView(card, cardLp);
     }
-    private void addAnnouncementSection(LinearLayout root) {
-        LinearLayout section = card(Color.WHITE);
-        LinearLayout.LayoutParams sectionLp = new LinearLayout.LayoutParams(-1, -2);
-        sectionLp.setMargins(0, dp(14), 0, 0);
-        root.addView(section, sectionLp);
 
-        // [REMOVED] 2026-06-11 公告区块已删除
+    /** 单个预设色块；选中态加深色描边 */
+    private View buildTurnColorChip(int color) {
+        View chip = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        lp.setMarginEnd(dp(6));
+        chip.setLayoutParams(lp);
+        applyTurnColorChipState(chip, color, AppPrefs.getTurnSignalColor(this) == color);
+        chip.setTag(color);
+        chip.setOnClickListener(v -> {
+            saveTurnSignalInt(AppPrefs.KEY_TURN_SIGNAL_COLOR, color);
+            syncTurnColorChips(color);
+            notifyTurnSignalChanged();
+            sendTurnSignalPreview("hazard");   // 换色即预览，所见即所得
+        });
+        return chip;
     }
 
-    // [REMOVED] 2026-06-11 开源信息区块已删除
+    private void applyTurnColorChipState(View chip, int color, boolean selected) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(color);
+        bg.setStroke(dp(selected ? 3 : 1), selected ? 0xFF2563EB : 0xFFCBD5E1);
+        chip.setBackground(bg);
+    }
+
+    private void syncTurnColorChips(int selectedColor) {
+        if (turnColorRow == null) return;
+        for (int i = 0; i < turnColorRow.getChildCount(); i++) {
+            View chip = turnColorRow.getChildAt(i);
+            Object tag = chip.getTag();
+            if (tag instanceof Integer) {
+                int c = (Integer) tag;
+                applyTurnColorChipState(chip, c, c == selectedColor);
+            }
+        }
+    }
+
+    /**
+     * 构建一行「标签 + SeekBar + 数值%」。
+     * 只在 onStopTrackingTouch 时落盘 + 通知，避免拖动过程中
+     * 每帧 apply() + 广播导致的主线程抖动（ANR 风险点）。
+     */
+    private LinearLayout buildTurnSeekRow(String label, String key,
+            int min, int max, int current) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(13f);
+        labelView.setTextColor(labelColor());
+        labelView.setMinWidth(dp(64));
+        row.addView(labelView, new LinearLayout.LayoutParams(-2, -2));
+
+        TextView valueView = new TextView(this);
+        valueView.setTextSize(12f);
+        valueView.setTextColor(0xFF2563EB);
+        valueView.setMinWidth(dp(40));
+        valueView.setGravity(Gravity.END);
+        valueView.setText(current + "%");
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(max - min);
+        seek.setProgress(Math.max(0, Math.min(max - min, current - min)));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                valueView.setText((min + progress) + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+                int value = min + bar.getProgress();
+                saveTurnSignalInt(key, value);
+                notifyTurnSignalChanged();
+                sendTurnSignalPreview("hazard");
+            }
+        });
+        LinearLayout.LayoutParams seekLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        seekLp.setMarginStart(dp(4));
+        row.addView(seek, seekLp);
+        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, dp(2), 0, dp(2));
+        row.setLayoutParams(rowLp);
+        return row;
+    }
+
+    private Button buildTurnPreviewButton(String text, String direction) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(14f);
+        b.setTextColor(0xFF007AFF);
+        b.setGravity(Gravity.CENTER);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(0, 0, 0, 0);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFFE8F1FF);
+        bg.setCornerRadius(dp(10));
+        GradientDrawable pressedBg = new GradientDrawable();
+        pressedBg.setColor(0xFFD4E5FF);
+        pressedBg.setCornerRadius(dp(10));
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_pressed}, pressedBg);
+        states.addState(new int[]{}, bg);
+        b.setBackground(states);
+        b.setOnClickListener(v -> {
+            if (!Settings.canDrawOverlays(this)) {
+                startOverlayService();   // 复用既有权限引导弹窗
+                return;
+            }
+            startOverlayService(this);
+            sendTurnSignalPreview(direction);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        lp.setMarginEnd(dp(6));
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void showTurnEffectDialog() {
+        int current = AppPrefs.getTurnSignalEffect(this);
+        iosAlertBuilder()
+                .setTitle("转向箭头动画特效")
+                .setSingleChoiceItems(TURN_EFFECT_NAMES, current, (dialog, which) -> {
+                    saveTurnSignalInt(AppPrefs.KEY_TURN_SIGNAL_EFFECT, which);
+                    if (turnEffectValue != null) {
+                        turnEffectValue.setText(turnEffectName(which));
+                    }
+                    notifyTurnSignalChanged();
+                    sendTurnSignalPreview("hazard");
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showTurnShapeDialog() {
+        int current = AppPrefs.getTurnSignalShape(this);
+        iosAlertBuilder()
+                .setTitle("转向箭头形状")
+                .setSingleChoiceItems(TURN_SHAPE_NAMES, current, (dialog, which) -> {
+                    saveTurnSignalInt(AppPrefs.KEY_TURN_SIGNAL_SHAPE, which);
+                    if (turnShapeValue != null) {
+                        turnShapeValue.setText(turnShapeName(which));
+                    }
+                    notifyTurnSignalChanged();
+                    sendTurnSignalPreview("hazard");
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String turnEffectName(int effect) {
+        if (effect < 0 || effect >= TURN_EFFECT_NAMES.length) {
+            effect = AppPrefs.DEFAULT_TURN_SIGNAL_EFFECT;
+        }
+        return TURN_EFFECT_NAMES[effect];
+    }
+
+    private String turnShapeName(int shape) {
+        if (shape < 0 || shape >= TURN_SHAPE_NAMES.length) {
+            shape = AppPrefs.DEFAULT_TURN_SIGNAL_SHAPE;
+        }
+        return TURN_SHAPE_NAMES[shape];
+    }
+
+    private void saveTurnSignalInt(String key, int value) {
+        getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+                .edit()
+                .putInt(key, value)
+                .apply();
+    }
+
+    /** 广播 + Intent 直传双通道，与本页其它设置项保持一致 */
+    void notifyTurnSignalChanged() {
+        Intent broadcast = new Intent(AppPrefs.ACTION_TURN_SIGNAL_CHANGED);
+        broadcast.setPackage(getPackageName());
+        sendBroadcast(broadcast);
+        sendDirectIntent(OverlayService.ACTION_REBUILD_TURN_SIGNAL);
+        // BUG-1 修复：形状/特效/透明度等变更后立即刷新摘要卡，避免显示旧值
+        if (turnSummaryView != null) {
+            turnSummaryView.setText(buildTurnSummary());
+        }
+    }
+
+    void sendTurnSignalPreview(String direction) {
+        Intent direct = new Intent(this, OverlayService.class);
+        direct.setAction(OverlayService.ACTION_PREVIEW_TURN_SIGNAL);
+        direct.putExtra(AppPrefs.EXTRA_TURN_SIGNAL_PREVIEW, direction);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    Context.class.getMethod("startForegroundService", Intent.class)
+                            .invoke(this, direct);
+                } catch (Throwable ignored) {
+                    startService(direct);
+                }
+            } else {
+                startService(direct);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     private void addScaleControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
+        // iOS 分组：区段标题 + 白卡 + 两行（开关 + 百分比输入）
+        parent.addView(sectionHeader("悬浮窗显示位置"), new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
 
-        // 卡片标题
-        TextView title = new TextView(this);
-        title.setText("悬浮窗显示位置");
-        title.setTextSize(14f);
-        title.setTextColor(0xFF111827);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        // 主屏悬浮窗 + 大小输入
-        LinearLayout mainRow = new LinearLayout(this);
-        mainRow.setOrientation(LinearLayout.HORIZONTAL);
-        mainRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        mainRow.setPadding(0, dp(12), 0, dp(8));
-
-        CheckBox mainToggle = overlayTargetToggle("主屏悬浮窗", AppPrefs.KEY_MAIN_OVERLAY_ENABLED);
-        mainRow.addView(mainToggle);
-
-        TextView mainLabel = new TextView(this);
-        mainLabel.setText("大小");
-        mainLabel.setTextSize(13f);
-        mainLabel.setTextColor(0xFF334155);
-        LinearLayout.LayoutParams mainLabelLp = new LinearLayout.LayoutParams(-2, -2);
-        mainLabelLp.setMarginStart(dp(12));
-        mainRow.addView(mainLabel, mainLabelLp);
-
-        EditText mainInput = new EditText(this);
-        mainInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        mainInput.setText(String.valueOf(AppPrefs.getOverlayScalePercent(this)));
-        mainInput.setSelection(mainInput.getText().length());
-        mainInput.setTextSize(13f);
-        mainInput.setGravity(android.view.Gravity.CENTER);
-        mainInput.setMinWidth(dp(56));
-        mainInput.setMaxWidth(dp(72));
-        LinearLayout.LayoutParams mainInputLp = new LinearLayout.LayoutParams(-2, -2);
-        mainInputLp.setMarginStart(dp(4));
-        mainRow.addView(mainInput, mainInputLp);
-
-        TextView mainSuffix = new TextView(this);
-        mainSuffix.setText("%");
-        mainSuffix.setTextSize(13f);
-        mainSuffix.setTextColor(0xFF334155);
-        mainRow.addView(mainSuffix);
-
-        mainInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                try {
-                    int percent = Integer.parseInt(mainInput.getText().toString().trim());
-                    percent = AppPrefs.clampOverlayScalePercent(percent);
-                    mainInput.setText(String.valueOf(percent));
-                    saveOverlayScalePercent(percent);
+        card.addView(overlayScaleRow("主屏悬浮窗", AppPrefs.KEY_MAIN_OVERLAY_ENABLED,
+                AppPrefs.getOverlayScalePercent(this), p -> {
+                    saveOverlayScalePercent(p);
                     notifyOverlayScaleChanged();
-                } catch (NumberFormatException ignored) {
-                    mainInput.setText(String.valueOf(AppPrefs.getOverlayScalePercent(MainActivity.this)));
-                }
-            }
-        });
+                }), new LinearLayout.LayoutParams(-1, -2));
 
-        card.addView(mainRow, new LinearLayout.LayoutParams(-1, -2));
+        View sep = separator();
+        LinearLayout.LayoutParams sepLp = new LinearLayout.LayoutParams(-1, dp(1));
+        sepLp.setMargins(dp(16), 0, 0, 0);
+        card.addView(sep, sepLp);
 
-        // 副屏悬浮窗 + 大小输入
-        LinearLayout clusterRow = new LinearLayout(this);
-        clusterRow.setOrientation(LinearLayout.HORIZONTAL);
-        clusterRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        clusterRow.setPadding(0, dp(12), 0, dp(8));
-
-        CheckBox clusterToggle = overlayTargetToggle("副屏悬浮窗", AppPrefs.KEY_CLUSTER_MIRROR_ENABLED);
-        clusterRow.addView(clusterToggle);
-
-        TextView clusterLabel = new TextView(this);
-        clusterLabel.setText("大小");
-        clusterLabel.setTextSize(13f);
-        clusterLabel.setTextColor(0xFF334155);
-        LinearLayout.LayoutParams clusterLabelLp = new LinearLayout.LayoutParams(-2, -2);
-        clusterLabelLp.setMarginStart(dp(12));
-        clusterRow.addView(clusterLabel, clusterLabelLp);
-
-        EditText clusterInput = new EditText(this);
-        clusterInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        clusterInput.setText(String.valueOf(AppPrefs.getClusterScalePercent(this)));
-        clusterInput.setSelection(clusterInput.getText().length());
-        clusterInput.setTextSize(13f);
-        clusterInput.setGravity(android.view.Gravity.CENTER);
-        clusterInput.setMinWidth(dp(56));
-        clusterInput.setMaxWidth(dp(72));
-        LinearLayout.LayoutParams clusterInputLp = new LinearLayout.LayoutParams(-2, -2);
-        clusterInputLp.setMarginStart(dp(4));
-        clusterRow.addView(clusterInput, clusterInputLp);
-
-        TextView clusterSuffix = new TextView(this);
-        clusterSuffix.setText("%");
-        clusterSuffix.setTextSize(13f);
-        clusterSuffix.setTextColor(0xFF334155);
-        clusterRow.addView(clusterSuffix);
-
-        clusterInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                try {
-                    int percent = Integer.parseInt(clusterInput.getText().toString().trim());
-                    percent = AppPrefs.clampOverlayScalePercent(percent);
-                    clusterInput.setText(String.valueOf(percent));
-                    saveClusterScalePercent(percent);
+        card.addView(overlayScaleRow("副屏悬浮窗", AppPrefs.KEY_CLUSTER_MIRROR_ENABLED,
+                AppPrefs.getClusterScalePercent(this), p -> {
+                    saveClusterScalePercent(p);
                     notifyClusterMirrorChanged();
-                } catch (NumberFormatException ignored) {
-                    clusterInput.setText(String.valueOf(AppPrefs.getClusterScalePercent(MainActivity.this)));
-                }
-            }
-        });
-
-        card.addView(clusterRow, new LinearLayout.LayoutParams(-1, -2));
+                }), new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
+        lp.setMargins(0, 0, 0, dp(12));
         parent.addView(card, lp);
     }
 
     private void addClusterMirrorControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
+        // iOS 分组：区段标题 + 白卡 + 列表行
+        parent.addView(sectionHeader("副屏悬浮窗"), new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
 
-        TextView title = new TextView(this);
-        title.setText("\u526f\u5c4f\u60ac\u6d6e\u7a97");
-        title.setTextSize(14f);
-        title.setTextColor(0xFF111827);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
+        // 投屏屏幕：右侧灰色当前值，整行可点选择
         clusterDisplayText = new TextView(this);
-        clusterDisplayText.setTextSize(13f);
-        clusterDisplayText.setTextColor(0xFF334155);
-        LinearLayout.LayoutParams displayTextLp = new LinearLayout.LayoutParams(-1, -2);
-        displayTextLp.setMargins(0, dp(10), 0, 0);
-        card.addView(clusterDisplayText, displayTextLp);
+        clusterDisplayText.setTextSize(14f);
+        clusterDisplayText.setTextColor(secondaryColor());
         updateClusterDisplayText();
+        LinearLayout infoRow = settingRow("投屏屏幕", clusterDisplayText);
+        infoRow.setClickable(true);
+        infoRow.setFocusable(true);
+        infoRow.setBackground(rowPress());
+        infoRow.setOnClickListener(v -> chooseClusterDisplay());
+        card.addView(infoRow, new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
 
-        card.addView(button("\u9009\u62e9\u6295\u5c4f\u5c4f\u5e55", v -> chooseClusterDisplay(), 0xFF3B82F6));
+        // 副屏位置调节
+        card.addView(listRow("副屏位置调节", null, this::showDirectionPadDialog),
+                new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+
+        // 悬浮窗样式：右侧显示当前样式名
+        overlayUiStyleValue = new TextView(this);
+        overlayUiStyleValue.setTextSize(14f);
+        overlayUiStyleValue.setTextColor(secondaryColor());
+        overlayUiStyleValue.setText(OverlayUiStyles.displayName(AppPrefs.getOverlayUiStyle(this)));
+        LinearLayout uiRow = settingRow("悬浮窗样式", overlayUiStyleValue);
+        uiRow.setClickable(true);
+        uiRow.setFocusable(true);
+        uiRow.setBackground(rowPress());
+        uiRow.setOnClickListener(v -> chooseOverlayUiStyle());
+        card.addView(uiRow, new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+
+        // 文字模式：右侧显示当前模式名
+        overlayTextModeValue = new TextView(this);
+        overlayTextModeValue.setTextSize(14f);
+        overlayTextModeValue.setTextColor(secondaryColor());
+        overlayTextModeValue.setText(textModeValue());
+        LinearLayout modeRow = settingRow("文字模式", overlayTextModeValue);
+        modeRow.setClickable(true);
+        modeRow.setFocusable(true);
+        modeRow.setBackground(rowPress());
+        modeRow.setOnClickListener(v -> chooseTextMode());
+        card.addView(modeRow, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
+        lp.setMargins(0, 0, 0, dp(12));
         parent.addView(card, lp);
     }
 
-    // [ADDED] 2026-06-23 \u526f\u5c4f\u65b9\u5411\u952e+\u5750\u6807\u5361\u7247\uff08\u5706\u89d2\u8fb9\u6846\uff0c\u653e\u5728\u5de6\u4fa7\u9762\u677f\uff09
-    private void addClusterDirectionCard(LinearLayout parent) {
-        // \u5706\u89d2\u8fb9\u6846\u5361\u7247
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
-
-        FrameLayout card = new FrameLayout(this);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-
-                                        // [MODIFIED] 2026-06-24 真正内切大圆布局：4个小圆内切于大圆，圆心在圆周上
-        int btnSize = dp(68);           // 小圆按钮直径
-        int bigRadius = dp(80);         // 大圆半径（小圆圆心到大圆中心的距离）
-        int containerHeight = dp(260);  // 容器高度
-        int containerWidth = dp(260);   // 容器宽度（正方形）
-
-        FrameLayout circleContainer = new FrameLayout(this);
-        FrameLayout.LayoutParams containerLp = new FrameLayout.LayoutParams(containerWidth, containerHeight);
-        containerLp.gravity = Gravity.CENTER;
-        circleContainer.setLayoutParams(containerLp);
-
-        // 大圆中心点
-        int centerX = containerWidth / 2;
-        int centerY = containerHeight / 2;
-
-        // 上（箭头向上，index=1）- 圆心在顶部
-        android.widget.ImageView btnUp = directionButton(1, () -> moveClusterBy(0, -dp(2)), () -> moveClusterBy(0, -dp(10)), btnSize);
-        FrameLayout.LayoutParams lpUp = new FrameLayout.LayoutParams(btnSize, btnSize);
-        lpUp.leftMargin = centerX - btnSize / 2;
-        lpUp.topMargin = centerY - bigRadius - btnSize / 2;
-        circleContainer.addView(btnUp, lpUp);
-
-        // 下（箭头向下，index=3）- 圆心在底部
-        android.widget.ImageView btnDown = directionButton(3, () -> moveClusterBy(0, dp(2)), () -> moveClusterBy(0, dp(10)), btnSize);
-        FrameLayout.LayoutParams lpDown = new FrameLayout.LayoutParams(btnSize, btnSize);
-        lpDown.leftMargin = centerX - btnSize / 2;
-        lpDown.topMargin = centerY + bigRadius - btnSize / 2;
-        circleContainer.addView(btnDown, lpDown);
-
-        // 左（箭头向左，index=0）- 圆心在左侧
-        android.widget.ImageView btnLeft = directionButton(0, () -> moveClusterBy(-dp(2), 0), () -> moveClusterBy(-dp(10), 0), btnSize);
-        FrameLayout.LayoutParams lpLeft = new FrameLayout.LayoutParams(btnSize, btnSize);
-        lpLeft.leftMargin = centerX - bigRadius - btnSize / 2;
-        lpLeft.topMargin = centerY - btnSize / 2;
-        circleContainer.addView(btnLeft, lpLeft);
-
-        // 右（箭头向右，index=2）- 圆心在右侧
-        android.widget.ImageView btnRight = directionButton(2, () -> moveClusterBy(dp(2), 0), () -> moveClusterBy(dp(10), 0), btnSize);
-        FrameLayout.LayoutParams lpRight = new FrameLayout.LayoutParams(btnSize, btnSize);
-        lpRight.leftMargin = centerX + bigRadius - btnSize / 2;
-        lpRight.topMargin = centerY - btnSize / 2;
-        circleContainer.addView(btnRight, lpRight);
-
-                // 坐标显示（整个容器正中心）
-        LinearLayout coordCol = new LinearLayout(this);
-        coordCol.setOrientation(LinearLayout.VERTICAL);
-        coordCol.setGravity(Gravity.CENTER);
-
-        coordTextX = new TextView(this);
-        coordTextX.setTextSize(18f);
-        coordTextX.setTextColor(0xFF334155);
-        coordTextX.setTypeface(Typeface.MONOSPACE);
-        coordTextX.setGravity(Gravity.CENTER);
-        coordCol.addView(coordTextX, new LinearLayout.LayoutParams(-2, -2));
-
-        coordTextY = new TextView(this);
-        coordTextY.setTextSize(18f);
-        coordTextY.setTextColor(0xFF334155);
-        coordTextY.setTypeface(Typeface.MONOSPACE);
-        coordTextY.setGravity(Gravity.CENTER);
-        coordCol.addView(coordTextY, new LinearLayout.LayoutParams(-2, -2));
-
-        updateCoordText();
-
-        FrameLayout.LayoutParams coordLp = new FrameLayout.LayoutParams(-2, -2);
-        coordLp.gravity = Gravity.CENTER;  // 整个容器正中心
-        circleContainer.addView(coordCol, coordLp);
-
-                // 让circleContainer在card中居中
-        FrameLayout.LayoutParams circleInCardLp = new FrameLayout.LayoutParams(containerWidth, containerHeight);
-        circleInCardLp.gravity = Gravity.CENTER;
-        card.addView(circleContainer, circleInCardLp);
-
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
-        cardLp.setMargins(0, dp(10), 0, 0);
-        parent.addView(card, cardLp);
+    /** 文字模式显示名（不带前缀，用于行右侧值） */
+    private String textModeValue() {
+        String mode = AppPrefs.getOverlayTextMode(this);
+        if (AppPrefs.TEXT_MODE_AUTO.equals(mode))          return "跟随系统";
+        if (AppPrefs.TEXT_MODE_FORCE_NIGHT.equals(mode))   return "强制夜间";
+        return "强制白天";
     }
 
     private void addOverlayContentControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
+        // iOS 分组：区段标题 + 白卡 + 开关行
+        parent.addView(sectionHeader("自定义悬浮窗内容"), new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
 
-        TextView title = new TextView(this);
-        title.setText("\u81ea\u5b9a\u4e49\u60ac\u6d6e\u7a97\u5185\u5bb9");
-        title.setTextSize(14f);
-        title.setTextColor(0xFF111827);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(-1, -2);
-        gridLp.setMargins(0, dp(10), 0, 0);
-        card.addView(grid, gridLp);
-
-        grid.addView(contentToggle("\u7ea2\u7eff\u706f\u5012\u8ba1\u65f6", AppPrefs.KEY_SHOW_LIGHT));
+        card.addView(contentToggle("红绿灯倒计时", AppPrefs.KEY_SHOW_LIGHT),
+                new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+        // ≤4s 呼吸动画：倒计时 ≤4 秒时呼吸闪烁提示即将变灯（移植自开源版）
+        card.addView(contentToggle("≤4s 呼吸动画", AppPrefs.KEY_LIGHT_BREATHING),
+                new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
-        parent.addView(card, lp);
-    }
-
-    private void addStyleAndModeControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-
-        overlayUiStyleButton = button(overlayUiStyleButtonText(), v -> chooseOverlayUiStyle(), 0xFF3B82F6);
-        LinearLayout.LayoutParams uiStyleLp = new LinearLayout.LayoutParams(-1, dp(42));
-        overlayUiStyleButton.setLayoutParams(uiStyleLp);
-        card.addView(overlayUiStyleButton);
-
-        overlayTextModeButton = button(textModeButtonText(), v -> chooseTextMode(), 0xFF3B82F6);
-        LinearLayout.LayoutParams buttonLp = new LinearLayout.LayoutParams(-1, dp(42));
-        buttonLp.setMargins(0, dp(10), 0, 0);
-        overlayTextModeButton.setLayoutParams(buttonLp);
-        card.addView(overlayTextModeButton);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
+        lp.setMargins(0, 0, 0, dp(12));
         parent.addView(card, lp);
     }
 
     private void addBehaviorControls(LinearLayout parent) {
-        // 圆角边框卡片
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(0xFFF8FAFC);
-        cardBg.setCornerRadius(dp(12));
-        cardBg.setStroke(dp(1), 0xFFE2E8F0);
+        // 拆两组卡：「启动行为」+「显示策略」，单卡更矮，减少滚动
+        behaviorGroup(parent, "启动行为",
+                behaviorToggle("桌面启动直达目标应用", AppPrefs.KEY_LAUNCH_TARGET_FROM_DESKTOP),
+                behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(cardBg);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        behaviorGroup(parent, "显示策略",
+                behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND),
+                behaviorToggle("导航/巡航退出隐藏仪表", AppPrefs.KEY_HIDE_CLUSTER_WHEN_INACTIVE),
+                directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER),
+                directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN),
+                behaviorToggle("超速≤10% 黄框提醒", AppPrefs.KEY_OVERSPEED_MILD_WARNING),
+                behaviorToggle("超速>10% 红框提醒", AppPrefs.KEY_OVERSPEED_MEDIUM_WARNING));
+    }
 
-        TextView title = new TextView(this);
-        title.setText("自动启动与显示策略");
-        title.setTextSize(14f);
-        title.setTextColor(0xFF111827);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
+    /** 一组策略卡：区段标题 + 白卡 + 若干开关行（行间自动加分隔线） */
+    private void behaviorGroup(LinearLayout parent, String title, View... rows) {
+        parent.addView(sectionHeader(title), new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(-1, -2);
-        gridLp.setMargins(0, dp(10), 0, 0);
-        card.addView(grid, gridLp);
-
-        if (isWideLayout()) {
-            addTogglePair(grid,
-                    behaviorToggle("桌面启动时直接进入目标应用", AppPrefs.KEY_LAUNCH_TARGET_FROM_DESKTOP),
-                    behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
-            addTogglePair(grid,
-                    behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND),
-                    behaviorToggle("导航/巡航退出隐藏仪表", AppPrefs.KEY_HIDE_CLUSTER_WHEN_INACTIVE));
-            addTogglePair(grid,
-                    directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER),
-                    directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN));
-        } else {
-            grid.addView(behaviorToggle("桌面启动时直接进入目标应用", AppPrefs.KEY_LAUNCH_TARGET_FROM_DESKTOP));
-            grid.addView(behaviorToggle("高德广播自动显示悬浮窗", AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND));
-            grid.addView(behaviorToggle("高德前台隐藏中控悬浮窗", AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND));
-            grid.addView(behaviorToggle("导航/巡航退出隐藏仪表", AppPrefs.KEY_HIDE_CLUSTER_WHEN_INACTIVE));
-            grid.addView(directionToggle("副屏", AppPrefs.KEY_LIGHT_VERTICAL_CLUSTER));
-            grid.addView(directionToggle("主屏", AppPrefs.KEY_LIGHT_VERTICAL_MAIN));
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
+        for (int i = 0; i < rows.length; i++) {
+            card.addView(rows[i], new LinearLayout.LayoutParams(-1, -2));
+            if (i < rows.length - 1) {
+                View sep = separator();
+                LinearLayout.LayoutParams sepLp = new LinearLayout.LayoutParams(-1, dp(1));
+                sepLp.setMargins(dp(16), 0, 0, 0);
+                card.addView(sep, sepLp);
+            }
         }
-
-        addOverspeedBehaviorControls(grid);
-
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
+        lp.setMargins(0, 0, 0, dp(12));
         parent.addView(card, lp);
     }
 
-    private void addOverspeedBehaviorControls(LinearLayout grid) {
-        CheckBox mild = behaviorToggle("\u666e\u901a\u8d85\u901f\u8fb9\u6846\u63d0\u9192", AppPrefs.KEY_OVERSPEED_MILD_WARNING);
-        CheckBox medium = behaviorToggle("\u8d85\u901f10%\u53ca\u4ee5\u4e0a\u8fb9\u6846\u63d0\u9192", AppPrefs.KEY_OVERSPEED_MEDIUM_WARNING);
-        if (isWideLayout()) {
-            addTogglePair(grid, mild, medium);
-        } else {
-            grid.addView(mild);
-            grid.addView(medium);
-        }
+
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  iOS 18 组件工厂：分组标题 / 白卡 / 分隔线 / 设置行 / 系统弹窗
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** 是否深色模式（跟随系统） */
+    private boolean isDarkMode() {
+        int mode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
-
-
-    private LinearLayout card(int color) {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(14), dp(12), dp(14), dp(14));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(10));
-        if (color == Color.WHITE) {
-            bg.setStroke(dp(1), 0xFFE5E7EB);
-        }
-        layout.setBackground(bg);
-        return layout;
+    /** iOS 分组背景（浅 #F2F2F7 / 深 #000000） */
+    private int bgColor() {
+        return isDarkMode() ? 0xFF000000 : 0xFFF2F2F7;
     }
 
-    private Button button(String text, android.view.View.OnClickListener listener, int color) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(15f);
-        b.setTextColor(Color.WHITE);
-        b.setGravity(Gravity.CENTER);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
+    /** iOS 卡片背景（浅 #FFFFFF / 深 #1C1C1E） */
+    private int cardColor() {
+        return isDarkMode() ? 0xFF1C1C1E : 0xFFFFFFFF;
+    }
+
+    /** iOS 主文字（浅 #1C1C1E / 深 #FFFFFF） */
+    private int labelColor() {
+        return isDarkMode() ? 0xFFFFFFFF : 0xFF1C1C1E;
+    }
+
+    /** iOS 副文字/值（浅 #8E8E93 / 深 #98989F） */
+    private int secondaryColor() {
+        return isDarkMode() ? 0xFF98989F : 0xFF8E8E93;
+    }
+
+    /** iOS 分组标题灰（浅 #6C6C70 / 深 #8E8E93） */
+    private int sectionHeaderColor() {
+        return isDarkMode() ? 0xFF8E8E93 : 0xFF6C6C70;
+    }
+
+    /** iOS 分隔线（浅 #E5E5EA / 深 #38383A） */
+    private int separatorColor() {
+        return isDarkMode() ? 0xFF38383A : 0xFFE5E5EA;
+    }
+
+    /** iOS 灰色箭头（浅 #C7C7CC / 深 #48484A） */
+    private int chevronColor() {
+        return isDarkMode() ? 0xFF48484A : 0xFFC7C7CC;
+    }
+
+    /** iOS 分组标题（灰色小字，置于白卡上方） */
+    private TextView sectionHeader(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(13f);
+        tv.setTextColor(sectionHeaderColor());
+        tv.setPadding(dp(16), 0, dp(16), dp(6));
+        return tv;
+    }
+
+    /** iOS 白色分组卡（大圆角、无边框；裁剪子视图使按压高亮不溢出圆角） */
+    private LinearLayout iosCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(8), dp(16), dp(8));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(8));
-        b.setBackground(bg);
-        b.setOnClickListener(listener);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
-        lp.setMargins(0, dp(9), 0, 0);
-        b.setLayoutParams(lp);
-        return b;
+        bg.setColor(cardColor());
+        bg.setCornerRadius(dp(16));
+        card.setBackground(bg);
+        card.setClipToOutline(true);
+        return card;
+    }
+
+    /** iOS 分隔线（左缩进 16dp，与文本对齐） */
+    private View separator() {
+        View v = new View(this);
+        v.setBackgroundColor(separatorColor());
+        return v;
+    }
+
+    /** 行按压高亮：透明→浅灰（iOS 点击反馈） */
+    private StateListDrawable rowPress() {
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(0x00000000);
+        GradientDrawable pressed = new GradientDrawable();
+        pressed.setColor(0x14000000); // 8% 黑
+        StateListDrawable s = new StateListDrawable();
+        s.addState(new int[]{android.R.attr.state_pressed}, pressed);
+        s.addState(new int[]{}, normal);
+        return s;
+    }
+
+    /** iOS 设置行：左文本 + 右侧控件，行高约 46dp，可点击时带按压高亮 */
+    private LinearLayout settingRow(String label, View trailing) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(46));
+        row.setPadding(0, dp(4), 0, dp(4));
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(15f);
+        tv.setTextColor(labelColor());
+        row.addView(tv, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (trailing != null) {
+            row.addView(trailing, new LinearLayout.LayoutParams(-2, -2));
+        }
+        return row;
+    }
+
+    /** 灰色右箭头 */
+    private TextView chevron() {
+        TextView v = new TextView(this);
+        v.setText("›");
+        v.setTextSize(20f);
+        v.setTextColor(chevronColor());
+        return v;
+    }
+
+    /** iOS 列表行：左标签 + 右灰色当前值 + 箭头，整行可点（跳转/选择型） */
+    private LinearLayout listRow(String label, String value, Runnable onClick) {
+        LinearLayout trailing = new LinearLayout(this);
+        trailing.setOrientation(LinearLayout.HORIZONTAL);
+        trailing.setGravity(Gravity.CENTER_VERTICAL);
+        if (value != null && !value.isEmpty()) {
+            TextView val = new TextView(this);
+            val.setText(value);
+            val.setTextSize(15f);
+            val.setTextColor(secondaryColor());
+            LinearLayout.LayoutParams valLp = new LinearLayout.LayoutParams(-2, -2);
+            valLp.setMarginEnd(dp(6));
+            trailing.addView(val, valLp);
+        }
+        trailing.addView(chevron(), new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout row = settingRow(label, trailing);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setBackground(rowPress());
+        if (onClick != null) {
+            row.setOnClickListener(v -> onClick.run());
+        }
+        return row;
+    }
+
+    /** iOS 行开关：左文本 + 右侧绿色开关；整行可点切换，带按压高亮 */
+    private LinearLayout switchRow(String label, boolean checked, IosSwitch.OnCheckedChangeListener listener) {
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(checked, false);
+        if (listener != null) {
+            sw.setOnCheckedChangeListener(listener);
+        }
+        LinearLayout row = settingRow(label, sw);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setBackground(rowPress());
+        row.setOnClickListener(v -> sw.toggle());
+        return row;
+    }
+
+    /** 系统弹窗统一 iOS 主题 */
+    private AlertDialog.Builder iosAlertBuilder() {
+        return new AlertDialog.Builder(this, R.style.IosAlert);
+    }
+
+    /** 系统弹窗按钮统一 iOS 蓝 */
+    private void styleIosDialogButtons(AlertDialog d) {
+        if (d == null) {
+            return;
+        }
+        try {
+            android.widget.Button pos = d.getButton(AlertDialog.BUTTON_POSITIVE);
+            if (pos != null) {
+                pos.setTextColor(0xFF007AFF);
+                pos.setTextSize(16f);
+            }
+            android.widget.Button neg = d.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (neg != null) {
+                neg.setTextColor(0xFF007AFF);
+                neg.setTextSize(16f);
+            }
+            android.widget.Button neu = d.getButton(AlertDialog.BUTTON_NEUTRAL);
+            if (neu != null) {
+                neu.setTextColor(0xFF007AFF);
+                neu.setTextSize(16f);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 绘制三角形箭头的 Drawable */
@@ -738,7 +1256,93 @@ public class MainActivity extends Activity {
         }
     }
 
-    // [MODIFIED] 2026-07-01 使用 PNG 箭头素材（统一向上箭头旋转四向），取代 ArrowDrawable 三角形
+    private void showDirectionPadDialog() {
+        int btnSize = dp(68);
+        int bigRadius = dp(80);
+        int containerSize = dp(260);
+
+        FrameLayout circleContainer = new FrameLayout(this);
+        FrameLayout.LayoutParams containerLp = new FrameLayout.LayoutParams(containerSize, containerSize);
+        containerLp.gravity = Gravity.CENTER;
+        circleContainer.setLayoutParams(containerLp);
+
+        int centerX = containerSize / 2;
+        int centerY = containerSize / 2;
+
+        // 上
+        android.widget.ImageView btnUp = directionButton(1, () -> moveClusterBy(0, -dp(2)), () -> moveClusterBy(0, -dp(10)), btnSize);
+        FrameLayout.LayoutParams lpUp = new FrameLayout.LayoutParams(btnSize, btnSize);
+        lpUp.leftMargin = centerX - btnSize / 2;
+        lpUp.topMargin = centerY - bigRadius - btnSize / 2;
+        circleContainer.addView(btnUp, lpUp);
+
+        // 下
+        android.widget.ImageView btnDown = directionButton(3, () -> moveClusterBy(0, dp(2)), () -> moveClusterBy(0, dp(10)), btnSize);
+        FrameLayout.LayoutParams lpDown = new FrameLayout.LayoutParams(btnSize, btnSize);
+        lpDown.leftMargin = centerX - btnSize / 2;
+        lpDown.topMargin = centerY + bigRadius - btnSize / 2;
+        circleContainer.addView(btnDown, lpDown);
+
+        // 左
+        android.widget.ImageView btnLeft = directionButton(0, () -> moveClusterBy(-dp(2), 0), () -> moveClusterBy(-dp(10), 0), btnSize);
+        FrameLayout.LayoutParams lpLeft = new FrameLayout.LayoutParams(btnSize, btnSize);
+        lpLeft.leftMargin = centerX - bigRadius - btnSize / 2;
+        lpLeft.topMargin = centerY - btnSize / 2;
+        circleContainer.addView(btnLeft, lpLeft);
+
+        // 右
+        android.widget.ImageView btnRight = directionButton(2, () -> moveClusterBy(dp(2), 0), () -> moveClusterBy(dp(10), 0), btnSize);
+        FrameLayout.LayoutParams lpRight = new FrameLayout.LayoutParams(btnSize, btnSize);
+        lpRight.leftMargin = centerX + bigRadius - btnSize / 2;
+        lpRight.topMargin = centerY - btnSize / 2;
+        circleContainer.addView(btnRight, lpRight);
+
+        // 坐标显示（容器正中心）
+        LinearLayout coordCol = new LinearLayout(this);
+        coordCol.setOrientation(LinearLayout.VERTICAL);
+        coordCol.setGravity(Gravity.CENTER);
+
+        coordTextX = new TextView(this);
+        coordTextX.setTextSize(18f);
+        coordTextX.setTextColor(labelColor());
+        coordTextX.setTypeface(Typeface.MONOSPACE);
+        coordTextX.setGravity(Gravity.CENTER);
+        coordCol.addView(coordTextX, new LinearLayout.LayoutParams(-2, -2));
+
+        coordTextY = new TextView(this);
+        coordTextY.setTextSize(18f);
+        coordTextY.setTextColor(labelColor());
+        coordTextY.setTypeface(Typeface.MONOSPACE);
+        coordTextY.setGravity(Gravity.CENTER);
+        coordCol.addView(coordTextY, new LinearLayout.LayoutParams(-2, -2));
+
+        updateCoordText();
+
+        FrameLayout.LayoutParams coordLp = new FrameLayout.LayoutParams(-2, -2);
+        coordLp.gravity = Gravity.CENTER;
+        circleContainer.addView(coordCol, coordLp);
+
+        // 整体居中
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER);
+        root.setPadding(dp(20), dp(20), dp(20), dp(20));
+        root.addView(circleContainer);
+
+        AlertDialog dialog = iosAlertBuilder()
+                .setTitle("副屏位置调节")
+                .setView(root)
+                .setPositiveButton("关闭", null)
+                .create();
+        dialog.show();
+        styleIosDialogButtons(dialog);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setLayout(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
     private android.widget.ImageView directionButton(int arrowDir, Runnable clickMove, Runnable longMove, int btnSize) {
         android.widget.ImageView iv = new android.widget.ImageView(this);
         // 统一使用向上的箭头 PNG，通过旋转得到四向（0=左 270°, 1=上 0°, 2=右 90°, 3=下 180°）
@@ -793,62 +1397,27 @@ public class MainActivity extends Activity {
         return iv;
     }
 
-    private void addButtonPair(LinearLayout parent, Button left, Button right) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setWeightSum(2f);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, dp(9), 0, 0);
-        row.setLayoutParams(rowLp);
-
-        row.addView(wideButton(left, 0, dp(5)));
-        if (right != null) {
-            row.addView(wideButton(right, dp(5), 0));
-        } else {
-            android.view.View spacer = new android.view.View(this);
-            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(0, 0, 1f);
-            spacerLp.setMargins(dp(5), 0, 0, 0);
-            row.addView(spacer, spacerLp);
-        }
-        parent.addView(row);
-    }
-
-    private Button wideButton(Button button, int leftMargin, int rightMargin) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(46), 1f);
-        lp.setMargins(leftMargin, 0, rightMargin, 0);
-        button.setLayoutParams(lp);
-        return button;
-    }
-
-    private void addTogglePair(LinearLayout parent, CheckBox left, CheckBox right) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setWeightSum(2f);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, dp(2), 0, 0);
-        row.setLayoutParams(rowLp);
-
-        row.addView(wideToggle(left, 0, dp(8)));
-        if (right != null) {
-            row.addView(wideToggle(right, dp(8), 0));
-        } else {
-            android.view.View spacer = new android.view.View(this);
-            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(0, 0, 1f);
-            spacerLp.setMargins(dp(8), 0, 0, 0);
-            row.addView(spacer, spacerLp);
-        }
-        parent.addView(row);
-    }
-
-    private CheckBox wideToggle(CheckBox checkBox, int leftMargin, int rightMargin) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
-        lp.setMargins(leftMargin, 0, rightMargin, 0);
-        checkBox.setLayoutParams(lp);
-        return checkBox;
-    }
-
     private boolean isWideLayout() {
         return getResources().getDisplayMetrics().widthPixels >= getResources().getDisplayMetrics().heightPixels;
+    }
+
+    /**
+     * 车机级横屏大屏（宽 ≥ 1200 且横屏）：触发字号放大（全屏 1300×900 适配，无左侧避让）。
+     * 【分辨率适配 1300×900】极狐阿尔法 S5 车机实际分辨率为 1300×900（横屏整屏），
+     * 原阈值 1920（按 1920×1080 假设备）导致 1300×900 不触发 → 字号不放大。改为 ≥1200：
+     *   1300×900 车机  → true（目标机型）
+     *   1600×900 模拟器 → true（贴近车机行为，测试更真实）
+     *   1920×1080      → true（兼容大屏）
+     *   手机竖屏        → false
+     */
+    private boolean isCarScreen() {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        return dm.widthPixels > dm.heightPixels && dm.widthPixels >= 1200;
+    }
+
+    /** 车机屏字号放大系数：仅放大 sp 字号，dp 间距不变，保持"不小不大"的协调 */
+    private float uiFontScale() {
+        return isCarScreen() ? 1.15f : 1.0f;
     }
 
     private void chooseTargetApp() {
@@ -868,7 +1437,7 @@ public class MainActivity extends Activity {
         TargetAppAdapter adapter = new TargetAppAdapter(choices);
         listView.setAdapter(adapter);
         dialogContent.addView(listView, new LinearLayout.LayoutParams(-1, Math.min(dp(520), getResources().getDisplayMetrics().heightPixels / 2)));
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = iosAlertBuilder()
                 .setTitle("\u9009\u62e9\u76ee\u6807\u5e94\u7528")
                 .setNegativeButton("\u663e\u793a\u6240\u6709\u5e94\u7528", null)
                 .setView(dialogContent)
@@ -883,6 +1452,7 @@ public class MainActivity extends Activity {
             dialog.dismiss();
         });
         dialog.show();
+        styleIosDialogButtons(dialog);
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
             choices.clear();
             choices.addAll(allChoices);
@@ -982,9 +1552,9 @@ public class MainActivity extends Activity {
         return label != null && label.contains("\u5730\u56fe");
     }
 
-    private void startOverlayService() {
+    void startOverlayService() {
         if (!Settings.canDrawOverlays(this)) {
-            new AlertDialog.Builder(this)
+            iosAlertBuilder()
                     .setTitle("\u60ac\u6d6e\u7a97\u6743\u9650")
                     .setMessage("\u4f34\u4fa3\u670d\u52a1\u9700\u8981\u60ac\u6d6e\u7a97\u6743\u9650\uff0c\u8bf7\u5728\u63a5\u4e0b\u6765\u7684\u754c\u9762\u4e2d\u5141\u8bb8\u201c\u663e\u793a\u5728\u5176\u4ed6\u5e94\u7528\u7684\u4e0a\u5c42\u201d\u3002")
                     .setPositiveButton("\u53bb\u8bbe\u7f6e", (d, w) -> {
@@ -1035,7 +1605,6 @@ public class MainActivity extends Activity {
     }
 
     private void stopCompanionService() {
-        saveBehaviorEnabled(AppPrefs.KEY_SHOW_MAIN_WHEN_TARGET_FOREGROUND, false);
         Intent stopIntent = new Intent(this, OverlayService.class);
         stopIntent.setAction(OverlayService.ACTION_STOP_SERVICE);
         try {
@@ -1126,7 +1695,7 @@ public class MainActivity extends Activity {
                 break;
             }
         }
-        new AlertDialog.Builder(this)
+        iosAlertBuilder()
                 .setTitle("\u9009\u62e9\u6295\u5c4f\u5c4f\u5e55")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     saveClusterDisplayId(which == 0 ? -1 : choices.get(which - 1).displayId);
@@ -1169,7 +1738,7 @@ public class MainActivity extends Activity {
                 "\u955c\u50cf\u7ad9\uff08\u4e0b\u8f7d ZIP\uff0c\u5feb\uff09\n" + mirrorUrl,
                 "GitHub \u539f\u7ad9\uff08\u53ef\u80fd\u8f83\u6162\uff09\n" + githubUrl
         };
-        new AlertDialog.Builder(this)
+        iosAlertBuilder()
                 .setTitle(title)
                 .setItems(labels, (dialog, which) -> {
                     if (which == 0) {
@@ -1183,12 +1752,11 @@ public class MainActivity extends Activity {
 
     private void updateTargetText() {
         if (targetText != null) {
-            String label = "\u76ee\u6807\u5e94\u7528 ";
+            String label = "\u9501\u5b9a\u5e94\u7528 ";
             String pkg = AppPrefs.getTargetPackage(this);
             android.text.SpannableStringBuilder ssb = new android.text.SpannableStringBuilder(label + pkg);
-            ssb.setSpan(new android.text.style.ForegroundColorSpan(0xFFD1D5DB), 0, label.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            ssb.setSpan(new android.text.style.ForegroundColorSpan(0xFF3B82F6), label.length(), label.length() + pkg.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            ssb.setSpan(new android.text.style.RelativeSizeSpan(17f / 14f), label.length(), label.length() + pkg.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new android.text.style.ForegroundColorSpan(secondaryColor()), 0, label.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new android.text.style.ForegroundColorSpan(0xFF007AFF), label.length(), label.length() + pkg.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             targetText.setText(ssb);
         }
     }
@@ -1207,52 +1775,50 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
-    private CheckBox contentToggle(String text, String key) {
-        CheckBox checkBox = new CheckBox(this);
-        checkBox.setText(text);
-        checkBox.setChecked(AppPrefs.isOverlayContentEnabled(this, key));
-        checkBox.setTextSize(14f);
-        checkBox.setTextColor(0xFF0F172A);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
-        }
-        checkBox.setPadding(0, dp(2), 0, dp(2));
-        checkBox.setTag(key);
-        checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+    private LinearLayout contentToggle(String text, String key) {
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(AppPrefs.isOverlayContentEnabled(this, key), false);
+        sw.setOnCheckedChangeListener((s, isChecked) -> {
             saveOverlayContentEnabled(key, isChecked);
             notifyOverlayContentChanged();
         });
-        return checkBox;
+        LinearLayout row = settingRow(text, sw);
+        row.setClickable(true);
+        row.setOnClickListener(v -> sw.toggle());
+        return row;
     }
 
-    private CheckBox directionToggle(String prefix, String key) {
-        CheckBox checkBox = behaviorToggle("check_placeholder", key);
-        checkBox.setText(getDirectionToggleText(prefix, key, AppPrefs.isBehaviorEnabled(this, key)));
-        checkBox.setOnCheckedChangeListener(null);
-        checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+    private LinearLayout directionToggle(String prefix, String key) {
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(AppPrefs.isBehaviorEnabled(this, key), false);
+        TextView label = new TextView(this);
+        label.setTextSize(15f);
+        label.setTextColor(labelColor());
+        label.setText(getDirectionToggleText(prefix, key, sw.isChecked()));
+        sw.setOnCheckedChangeListener((s, isChecked) -> {
             saveBehaviorEnabled(key, isChecked);
-            checkBox.setText(getDirectionToggleText(prefix, key, isChecked));
+            label.setText(getDirectionToggleText(prefix, key, isChecked));
             notifyDisplayPolicyChanged();
         });
-        return checkBox;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(46));
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        row.setClickable(true);
+        row.setOnClickListener(v -> sw.toggle());
+        return row;
     }
 
     private String getDirectionToggleText(String prefix, String key, boolean isVertical) {
         return prefix + "-红绿灯" + (isVertical ? "竖向模式中" : "横向模式中");
     }
 
-    private CheckBox behaviorToggle(String text, String key) {
-        CheckBox checkBox = new CheckBox(this);
-        checkBox.setText(text);
-        checkBox.setChecked(AppPrefs.isBehaviorEnabled(this, key));
-        checkBox.setTextSize(14f);
-        checkBox.setTextColor(0xFF0F172A);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
-        }
-        checkBox.setPadding(0, dp(2), 0, dp(2));
-        checkBox.setTag(key);
-        checkBox.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+    private LinearLayout behaviorToggle(String text, String key) {
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(AppPrefs.isBehaviorEnabled(this, key), false);
+        sw.setOnCheckedChangeListener((s, isChecked) -> {
             saveBehaviorEnabled(key, isChecked);
             if (AppPrefs.KEY_HIDE_MAIN_WHEN_TARGET_FOREGROUND.equals(key)
                     && isChecked && !AppPrefs.hasUsageStatsAccess(this)) {
@@ -1270,23 +1836,20 @@ public class MainActivity extends Activity {
                 stopServiceIfNoVisuals();
             }
         });
-        return checkBox;
+        LinearLayout row = settingRow(text, sw);
+        row.setClickable(true);
+        row.setOnClickListener(v -> sw.toggle());
+        return row;
     }
 
-    private CheckBox overlayTargetToggle(String text, String key) {
-        CheckBox checkBox = new CheckBox(this);
-        checkBox.setText(text);
-        checkBox.setChecked(AppPrefs.KEY_CLUSTER_MIRROR_ENABLED.equals(key)
+    /** iOS 行：文本 + 右侧（开关 + 百分比输入框 + % 后缀） */
+    private LinearLayout overlayScaleRow(String text, String key, int percent,
+                                         java.util.function.Consumer<Integer> onCommit) {
+        IosSwitch sw = new IosSwitch(this);
+        sw.setChecked(AppPrefs.KEY_CLUSTER_MIRROR_ENABLED.equals(key)
                 ? AppPrefs.isClusterMirrorEnabled(this)
-                : AppPrefs.isMainOverlayEnabled(this));
-        checkBox.setTextSize(14f);
-        checkBox.setTextColor(0xFF0F172A);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF2563EB));
-        }
-        checkBox.setPadding(0, dp(2), 0, dp(2));
-        checkBox.setTag(key);
-        checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                : AppPrefs.isMainOverlayEnabled(this), false);
+        sw.setOnCheckedChangeListener((s, isChecked) -> {
             if (AppPrefs.KEY_CLUSTER_MIRROR_ENABLED.equals(key)) {
                 saveClusterMirrorEnabled(isChecked);
                 if (isChecked) {
@@ -1305,7 +1868,46 @@ public class MainActivity extends Activity {
                 stopServiceIfNoVisuals();
             }
         });
-        return checkBox;
+
+        EditText input = new EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(percent));
+        input.setSelection(input.getText().length());
+        input.setTextSize(14f);
+        input.setTextColor(labelColor());
+        input.setGravity(Gravity.CENTER);
+        input.setSingleLine(true);
+        input.setMinWidth(dp(56));
+        input.setMaxWidth(dp(72));
+        input.setBackgroundResource(R.drawable.ios_edit_bg);
+        input.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                try {
+                    int p = Integer.parseInt(input.getText().toString().trim());
+                    p = AppPrefs.clampOverlayScalePercent(p);
+                    input.setText(String.valueOf(p));
+                    onCommit.accept(p);
+                } catch (NumberFormatException ignored) {
+                    input.setText(String.valueOf(percent));
+                }
+            }
+        });
+
+        TextView suffix = new TextView(this);
+        suffix.setText("%");
+        suffix.setTextSize(14f);
+        suffix.setTextColor(secondaryColor());
+
+        LinearLayout trailing = new LinearLayout(this);
+        trailing.setOrientation(LinearLayout.HORIZONTAL);
+        trailing.setGravity(Gravity.CENTER_VERTICAL);
+        trailing.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-2, -2);
+        inputLp.setMargins(dp(8), 0, dp(4), 0);
+        trailing.addView(input, inputLp);
+        trailing.addView(suffix);
+
+        return settingRow(text, trailing);
     }
 
     private void openUsageAccessSettings() {
@@ -1330,26 +1932,17 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
-    private String textModeButtonText() {
-        String mode = AppPrefs.getOverlayTextMode(this);
-        if (AppPrefs.TEXT_MODE_AUTO.equals(mode))      return "\u6587\u5b57\u6a21\u5f0f\uff1a\u8ddf\u968f\u7cfb\u7edf";
-        if (AppPrefs.TEXT_MODE_FORCE_NIGHT.equals(mode)) return "\u6587\u5b57\u6a21\u5f0f\uff1a\u5f3a\u5236\u591c\u95f4";
-        return "\u6587\u5b57\u6a21\u5f0f\uff1a\u5f3a\u5236\u767d\u5929";
-    }
-
-    private String overlayUiStyleButtonText() {
-        return "\u60ac\u6d6e\u7a97\u6837\u5f0f\uff1a" + OverlayUiStyles.displayName(AppPrefs.getOverlayUiStyle(this));
-    }
-
     private void chooseOverlayUiStyle() {
         String currentStyle = AppPrefs.getOverlayUiStyle(this);
         int checked = OverlayUiStyles.indexOf(currentStyle);
-        new AlertDialog.Builder(this)
+        iosAlertBuilder()
                 .setTitle("\u9009\u62e9\u60ac\u6d6e\u7a97\u6837\u5f0f")
                 .setSingleChoiceItems(OverlayUiStyles.labels(), checked, (dialog, which) -> {
                     String style = OverlayUiStyles.ALL[which].id;
                     saveOverlayUiStyle(style);
-                    overlayUiStyleButton.setText(overlayUiStyleButtonText());
+                    if (overlayUiStyleValue != null) {
+                        overlayUiStyleValue.setText(OverlayUiStyles.displayName(style));
+                    }
                     notifyOverlayStyleChanged();
                     dialog.dismiss();
                 })
@@ -1368,7 +1961,7 @@ public class MainActivity extends Activity {
         if (AppPrefs.TEXT_MODE_AUTO.equals(current))          checked = 0;
         else if (AppPrefs.TEXT_MODE_FORCE_NIGHT.equals(current)) checked = 2;
         else                                                   checked = 1;
-        new AlertDialog.Builder(this)
+        iosAlertBuilder()
                 .setTitle("\u9009\u62e9\u6587\u5b57\u6a21\u5f0f")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     String mode;
@@ -1376,7 +1969,9 @@ public class MainActivity extends Activity {
                     else if (which == 2) mode = AppPrefs.TEXT_MODE_FORCE_NIGHT;
                     else                 mode = AppPrefs.TEXT_MODE_LIGHT;
                     saveOverlayTextMode(mode);
-                    overlayTextModeButton.setText(textModeButtonText());
+                    if (overlayTextModeValue != null) {
+                        overlayTextModeValue.setText(textModeValue());
+                    }
                     notifyOverlayStyleChanged();
                     dialog.dismiss();
                 })
@@ -1443,10 +2038,7 @@ public class MainActivity extends Activity {
         sendBroadcast(intent);
     }
 
-    // [MODIFIED] 2026-06-11 BUG4: 添加 Intent 直传保底,避免广播丢失
     // 验证: 内容变更后悬浮窗应实时更新
-    // [FIXED] 2026-06-11 BUG A: 移除 startOverlayService() 冗余调用,direct Intent 已能确保服务收到
-    // [OPTIMIZED] 2026-06-11 BUG D: 使用 sendDirectIntent 公用方法
     private void notifyOverlayContentChanged() {
         Intent broadcast = new Intent(AppPrefs.ACTION_OVERLAY_CONTENT_CHANGED);
         broadcast.setPackage(getPackageName());
@@ -1454,8 +2046,6 @@ public class MainActivity extends Activity {
         sendDirectIntent(OverlayService.ACTION_REBUILD_CONTENT);
     }
 
-    // [FIXED] 2026-06-11 BUG A: 移除 startOverlayService() 冗余调用
-    // [OPTIMIZED] 2026-06-11 BUG D: 使用 sendDirectIntent 公用方法
     private void notifyOverlayStyleChanged() {
         // 方式1:广播(原始方案)
         Intent broadcast = new Intent(AppPrefs.ACTION_OVERLAY_STYLE_CHANGED);
@@ -1465,8 +2055,6 @@ public class MainActivity extends Activity {
         sendDirectIntent(OverlayService.ACTION_REBUILD_STYLE);
     }
 
-    // [FIXED] 2026-06-11 BUG A: 移除 startOverlayService() 冗余调用,direct Intent 已能确保服务收到
-    // [OPTIMIZED] 2026-06-11 BUG D: 使用 sendDirectIntent 公用方法
     private void notifyDisplayPolicyChanged() {
         Intent broadcast = new Intent(AppPrefs.ACTION_DISPLAY_POLICY_CHANGED);
         broadcast.setPackage(getPackageName());
@@ -1490,12 +2078,14 @@ public class MainActivity extends Activity {
         if (!AppPrefs.isMainOverlayEnabled(this)
                 && !AppPrefs.isClusterMirrorEnabled(this)
                 && !AppPrefs.isAutoStartEnabled(this)
+                // 【2026-08-03 审查修复 P2-1】转向 HUD 可独立于主悬浮窗工作，
+                // 只要极狐转向开着服务就必须活着，否则 logcat 监控线程会被杀（与 OverlayService 一致）
+                && !AppPrefs.isTurnSignalOverlayEnabled(this)
                 && !AppPrefs.isShowMainWhenTargetForegroundEnabled(this)) {
             stopService(new Intent(this, OverlayService.class));
         }
     }
 
-    // [OPTIMIZED] 2026-06-11 BUG D: 抽取公用方法,消除反射调用重复代码
     private void sendDirectIntent(String action) {
         Intent direct = new Intent(this, OverlayService.class);
         direct.setAction(action);
@@ -1519,7 +2109,7 @@ public class MainActivity extends Activity {
         }
         int selectedId = AppPrefs.getClusterDisplayId(this);
         if (selectedId < 0) {
-            clusterDisplayText.setText("\u6295\u5c4f\u5c4f\u5e55 \u00b7 \u81ea\u52a8\u9009\u62e9");
+            clusterDisplayText.setText("自动选择");
             return;
         }
         DisplayChoice selected = null;
@@ -1531,9 +2121,9 @@ public class MainActivity extends Activity {
             }
         }
         if (selected != null) {
-            clusterDisplayText.setText("\u6295\u5c4f\u5c4f\u5e55 \u00b7 " + selected.label + " (ID " + selected.displayId + ")");
+            clusterDisplayText.setText(selected.label + " (ID " + selected.displayId + ")");
         } else {
-            clusterDisplayText.setText("\u6295\u5c4f\u5c4f\u5e55 \u00b7 \u5df2\u6307\u5b9a ID " + selectedId + "\uff08\u5f53\u524d\u672a\u68c0\u6d4b\u5230\uff09");
+            clusterDisplayText.setText("已指定 ID " + selectedId + "（当前未检测到）");
         }
     }
 
@@ -1566,12 +2156,13 @@ public class MainActivity extends Activity {
     }
 
     private void updateCoordText() {
-        if (coordTextX == null) { return; }
         SharedPreferences prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
         int x = prefs.getInt(AppPrefs.KEY_CLUSTER_X, 600);
         int y = prefs.getInt(AppPrefs.KEY_CLUSTER_Y, 180);
-        coordTextX.setText("X: " + x);
-        coordTextY.setText("Y: " + y);
+        String xs = "X: " + x;
+        String ys = "Y: " + y;
+        if (coordTextX != null) { coordTextX.setText(xs); }
+        if (coordTextY != null) { coordTextY.setText(ys); }
     }
 
     private void moveClusterBy(int dx, int dy) {
@@ -1641,7 +2232,7 @@ public class MainActivity extends Activity {
             title.setText(choice.label);
             title.setTextSize(16);
             title.setTypeface(Typeface.DEFAULT_BOLD);
-            title.setTextColor(0xFF111827);
+            title.setTextColor(labelColor());
             title.setSingleLine(true);
             title.setEllipsize(TextUtils.TruncateAt.END);
             content.addView(title, new LinearLayout.LayoutParams(-1, -2));

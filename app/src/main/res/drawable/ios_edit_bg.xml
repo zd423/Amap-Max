@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- iOS 风格输入框：浅灰圆角底，无边框 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#F2F2F7"/>
+    <corners android:radius="8dp"/>
+    <padding
+        android:left="10dp"
+        android:top="6dp"
+        android:right="10dp"
+        android:bottom="6dp"/>
+</shape>

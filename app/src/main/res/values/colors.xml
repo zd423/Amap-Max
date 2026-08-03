@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- iOS 18 palette -->
+    <color name="ios_grouped_bg">#F2F2F7</color>
+    <color name="ios_card_bg">#FFFFFF</color>
+    <color name="ios_label">#1C1C1E</color>
+    <color name="ios_secondary_label">#8E8E93</color>
+    <color name="ios_tertiary_label">#C7C7CC</color>
+    <color name="ios_separator">#C6C8CE</color>
+    <color name="ios_separator_light">#E5E5EA</color>
+    <color name="ios_blue">#007AFF</color>
+    <color name="ios_green">#34C759</color>
+    <color name="ios_red">#FF3B30</color>
+    <color name="ios_switch_off">#E9E9EA</color>
+    <color name="ios_gray_fill">#787880</color>
+    <color name="ios_light_blue_fill">#E8F1FF</color>
+    <color name="ios_input_fill">#F2F2F7</color>
+</resources>

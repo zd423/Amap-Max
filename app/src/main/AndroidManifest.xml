@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.autonavi.companion"
-    android:versionCode="2"
-    android:versionName="1.1.1">
+    android:versionCode="1830"
+    android:versionName="1.8.3">
     <uses-sdk
         android:minSdkVersion="23"
         android:targetSdkVersion="31" />
@@ -10,15 +10,16 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.GET_TASKS" />
-    <uses-permission android:name="android.permission.READ_LOGS" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 【新增·转向 HUD】读取 commservice 的 CAN 转向灯日志。
+         保护级别 signature|privileged|development：
+           · 车机上本包为 platform 签名 → 安装即授予
+           · 模拟器/调试机 → adb shell pm grant com.autonavi.companion android.permission.READ_LOGS
+         未授予时 AdayoTurnSignalMonitor 会静默降级（logcat 读不到数据，不崩溃） -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
 
     <application
         android:allowBackup="false"
@@ -36,9 +37,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".StartServiceActivity"
+            android:exported="true"
+            android:label="AMap Max 服务"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="com.autonavi.companion.START_UILESS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".OverlayService"
-            android:exported="false" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.autonavi.companion.START_OVERLAY_SERVICE" />
+            </intent-filter>
+        </service>
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
