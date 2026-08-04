@@ -84,7 +84,7 @@ public final class AppPrefs {
     public static final int  MIN_TURN_SIGNAL_EFFECT             = 0;
     public static final int  MAX_TURN_SIGNAL_EFFECT             = 5;
     public static final int  MIN_TURN_SIGNAL_SHAPE              = 0;
-    public static final int  MAX_TURN_SIGNAL_SHAPE              = 3;          // 0..3，3 = 传统箭头（用户新增）
+    public static final int  MAX_TURN_SIGNAL_SHAPE              = 4;          // 0..4，3 = 传统箭头，4 = 静态箭头（用户新增）
     public static final int  MIN_TURN_SIGNAL_ALPHA              = 10;
     public static final int  MAX_TURN_SIGNAL_ALPHA              = 100;
     public static final int  MIN_TURN_SIGNAL_SIZE               = 40;

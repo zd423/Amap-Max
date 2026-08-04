@@ -401,9 +401,9 @@ public class MainActivity extends Activity {
     };
 
     /** 箭头形状名称，索引 = AppPrefs.KEY_TURN_SIGNAL_SHAPE 的值 */
-    // 【2026-08-03 用户新增】4 形状：V形箭头 / 流水灯带 / 实心箭头 / 传统箭头
+    // 【2026-08-03 用户新增】5 形状：V形箭头 / 流水灯带 / 实心箭头 / 传统箭头 / 静态箭头
     private static final String[] TURN_SHAPE_NAMES = {
-            "V形箭头", "流水灯带", "实心箭头", "传统箭头"
+            "V形箭头", "流水灯带", "实心箭头", "传统箭头", "静态箭头"
     };
 
     /** 预设箭头配色（首项为原厂默认荧光青绿）；【2026-08-03 用户加色】7 色含 iOS 亮绿 #34C759 */

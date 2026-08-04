@@ -40,9 +40,9 @@ public final class TurnSignalSettingsSheet {
     private static final String[] TURN_EFFECT_NAMES = {
             "线性衰减", "波形脉冲", "流动追光", "正弦呼吸", "粒子拖尾", "双向流光"
     };
-    // 【2026-08-03 用户加形状】4 形状：V形箭头 / 流水灯带 / 实心箭头 / 【新增 传统箭头】
+    // 【2026-08-03 用户加形状】5 形状：V形箭头 / 流水灯带 / 实心箭头 / 传统箭头 / 【新增 静态箭头(实车)】
     private static final String[] TURN_SHAPE_NAMES = {
-            "V形箭头", "流水灯带", "实心箭头", "传统箭头"
+            "V形箭头", "流水灯带", "实心箭头", "传统箭头", "静态箭头"
     };
 
     private static final int IOS_BLUE = 0xFF007AFF;

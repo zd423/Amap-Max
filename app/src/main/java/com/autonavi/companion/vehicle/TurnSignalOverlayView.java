@@ -97,7 +97,8 @@ public final class TurnSignalOverlayView extends View {
         direction = (value != null) ? value : AdayoTurnSignalMonitor.Direction.OFF;
         applyVisibility();
         boolean visible = hostVisible && isVisibleForSide();
-        if (visible && effect > 0) startAnimation();
+        // 静态箭头（shape==4）不启动动画循环，实车省电
+        if (visible && effect > 0 && shape != 4) startAnimation();
         else stopAnimation();
         invalidate();
     }
@@ -112,7 +113,8 @@ public final class TurnSignalOverlayView extends View {
         hostVisible = visible;
         applyVisibility();
         boolean shouldAnimate = hostVisible && isVisibleForSide();
-        if (shouldAnimate && effect > 0) startAnimation();
+        // 静态箭头（shape==4）不启动动画循环，实车省电
+        if (shouldAnimate && effect > 0 && shape != 4) startAnimation();
         else stopAnimation();
         invalidate();
     }
@@ -138,7 +140,8 @@ public final class TurnSignalOverlayView extends View {
         renderColor = color;   // 转向为安全警示信号，不做夜间调光，始终用用户所选颜色
         density = getResources().getDisplayMetrics().density;
         // 效果模式可能从静态切到动态，或反之，需要同步动画状态
-        boolean shouldAnimate = hostVisible && isVisibleForSide() && effect > 0;
+        // 静态箭头（shape==4）不启动动画循环，实车省电
+        boolean shouldAnimate = hostVisible && isVisibleForSide() && effect > 0 && shape != 4;
         if (shouldAnimate) startAnimation();
         else stopAnimation();
         invalidate();
@@ -216,6 +219,9 @@ public final class TurnSignalOverlayView extends View {
             } else if (shape == 3) {
                 drawClassicArrow(canvas, false, leftBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
+            } else if (shape == 4) {
+                drawStaticArrow(canvas, false, leftBase, centerY, spacing,
+                        halfWidth, halfHeight, density, baseAlpha);
             } else {
                 drawSide(canvas, false, leftBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
@@ -233,6 +239,9 @@ public final class TurnSignalOverlayView extends View {
                         halfWidth, halfHeight, density, baseAlpha);
             } else if (shape == 3) {
                 drawClassicArrow(canvas, true, rightBase, centerY, spacing,
+                        halfWidth, halfHeight, density, baseAlpha);
+            } else if (shape == 4) {
+                drawStaticArrow(canvas, true, rightBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
             } else {
                 drawSide(canvas, true, rightBase, centerY, spacing,
@@ -461,6 +470,45 @@ public final class TurnSignalOverlayView extends View {
                     canvas.drawPath(path, paint);
                 }
             }
+        }
+        paint.clearShadowLayer();
+        paint.setStyle(Paint.Style.STROKE);
+    }
+
+    /**
+     * 【2026-08-04 用户新增·实车】静态箭头：复用一体成型燕尾箭头造型（B 版），
+     * 但完全无动态 —— 恒定亮度（不随 phase/intensity 变化）、无白闪、无呼吸/流动。
+     * 实车场景：按方向点亮后静止显示，干净利落；同时上层动画循环被 shape!=4 条件停掉，不白耗 CPU。
+     */
+    private void drawStaticArrow(Canvas canvas, boolean rightMirrored,
+            float firstCenter, float centerY, float spacing,
+            float halfWidth, float halfHeight, float density, int baseAlpha) {
+        float headW = 26f * density * sizeFactor;   // 与 B 传统箭头同尺寸
+        float headH = 36f * density * sizeFactor;
+        float barL = 16f * density * sizeFactor;
+        float barW = 13f * density * sizeFactor;
+        for (int i = 0; i < 2; i++) {
+            float centerX = rightMirrored
+                    ? firstCenter - i * spacing
+                    : firstCenter + i * spacing;
+            // 静态：所有箭头同一恒定亮度，不乘 effectIntensity，不参与相位动画
+            int alpha = Math.max(18, baseAlpha);
+            int edgeColor = Color.argb(alpha,
+                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+
+            buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
+
+            // 外层柔和 glow（恒定）
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.argb(Math.round(alpha * 0.18f),
+                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+            paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
+            canvas.drawPath(path, paint);
+
+            // 核心实色（恒定）
+            paint.setShadowLayer(6f * density * sizeFactor, 0, 0, edgeColor);
+            paint.setColor(edgeColor);
+            canvas.drawPath(path, paint);
         }
         paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
