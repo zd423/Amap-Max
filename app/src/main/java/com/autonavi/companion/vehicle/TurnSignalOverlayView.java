@@ -417,16 +417,18 @@ public final class TurnSignalOverlayView extends View {
     }
 
     /**
-     * 【2026-08-03 用户新增】传统箭头：经典实心转向指示灯图形（三角头 + 短杆），
-     * FILL 填充 + glow 发光，画 2 个（传统箭头单体更大更醒目，2 个足够辨识）。
+     * 【2026-08-03 用户新增】传统箭头：经典实心转向指示灯图形（三角头 + 燕尾凹槽 + 杆一体成型），
+     * FILL 填充 + 柔和 glow 发光，画 2 个（传统箭头单体更大更醒目，2 个足够辨识）。
+     * 【2026-08-04 用户选择 B】从「三角头+短杆两段拼接」改为「一体成型」：三角头尾部带燕尾凹槽，
+     * 杆从凹槽内长出，整条轮廓为单一连续 Path，无拼接缝隙（经典交通指示牌箭头造型）。
      */
     private void drawClassicArrow(Canvas canvas, boolean rightMirrored,
             float firstCenter, float centerY, float spacing,
             float halfWidth, float halfHeight, float density, int baseAlpha) {
-        float headW = 24f * density * sizeFactor;   // 头长
-        float headH = 34f * density * sizeFactor;   // 头高
-        float barL = 14f * density * sizeFactor;    // 杆长
-        float barW = 12f * density * sizeFactor;    // 杆宽
+        float headW = 26f * density * sizeFactor;   // 头长
+        float headH = 36f * density * sizeFactor;   // 头高
+        float barL = 16f * density * sizeFactor;    // 杆长
+        float barW = 13f * density * sizeFactor;    // 杆宽
         for (int i = 0; i < 2; i++) {
             float centerX = rightMirrored
                     ? firstCenter - i * spacing
@@ -438,15 +440,15 @@ public final class TurnSignalOverlayView extends View {
 
             buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
 
-            // 外层 glow
+            // 外层柔和 glow（灯珠光晕质感：大半径低透明度）
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(Math.round(alpha * 0.22f),
+            paint.setColor(Color.argb(Math.round(alpha * 0.18f),
                     Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
-            paint.setShadowLayer(12f * density * sizeFactor, 0, 0, edgeColor);
+            paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
             canvas.drawPath(path, paint);
 
-            // 核心实色
-            paint.setShadowLayer(4f * density * sizeFactor, 0, 0, edgeColor);
+            // 核心实色（带轻光晕，边缘不锐利）
+            paint.setShadowLayer(6f * density * sizeFactor, 0, 0, edgeColor);
             paint.setColor(edgeColor);
             canvas.drawPath(path, paint);
 
@@ -464,26 +466,28 @@ public final class TurnSignalOverlayView extends View {
         paint.setStyle(Paint.Style.STROKE);
     }
 
-    /** 构建传统箭头 Path：实心三角头 + 短杆（尖朝右=rightMirrored true） */
+    /**
+     * 构建一体成型传统箭头 Path（经典交通指示牌样式）：
+     * 三角头尾部带燕尾凹槽，杆从凹槽顶点向外延伸，整条轮廓为单一连续 Path，无拼接缝。
+     * 尖朝右 = rightMirrored true；尖朝左 = rightMirrored false。
+     */
     private void buildClassicArrowPath(float centerX, float centerY,
             float headW, float headH, float barL, float barW, boolean rightMirrored) {
         path.reset();
         float sign = rightMirrored ? 1f : -1f;
-        float tipX = centerX + sign * headW;
-        float tailX = centerX - sign * headW;
+        float tipX = centerX + sign * headW;         // 尖端
         float headHalf = headH / 2f;
         float barHalf = barW / 2f;
-        float barEndX = tailX - sign * barL;
-        // 头三角形
-        path.moveTo(tipX, centerY);               // 尖端
-        path.lineTo(tailX, centerY - headHalf);   // 上角
-        path.lineTo(tailX, centerY + headHalf);   // 下角
-        path.close();
-        // 杆（从头基部向尾延伸的矩形）
-        path.moveTo(tailX, centerY - barHalf);
+        float notchX = centerX + sign * barW * 0.7f; // 燕尾顶点（= 杆右端面中心）
+        float barEndX = centerX - sign * barL;       // 杆尾端
+        // 尖端 → 上耳 → 燕尾上斜边 → 杆上边 → 杆端面 → 杆下边 → 燕尾下斜边 → 下耳 → 闭合
+        path.moveTo(tipX, centerY);
+        path.lineTo(centerX, centerY - headHalf);
+        path.lineTo(notchX, centerY - barHalf);
         path.lineTo(barEndX, centerY - barHalf);
         path.lineTo(barEndX, centerY + barHalf);
-        path.lineTo(tailX, centerY + barHalf);
+        path.lineTo(notchX, centerY + barHalf);
+        path.lineTo(centerX, centerY + headHalf);
         path.close();
     }
 
