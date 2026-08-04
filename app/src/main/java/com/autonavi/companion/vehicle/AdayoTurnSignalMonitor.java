@@ -42,6 +42,11 @@ public final class AdayoTurnSignalMonitor {
     private static final int MAX_HISTORY = 32;
     private static final int MAX_RAW_SAMPLES = 24;
 
+    /** 【1839 修复】方向确认窗口：新方向需在此窗口内被后续配对再次确认才发布，
+     *  吞掉打方向瞬间左右 lamp 日志行乱序/杂散导致的瞬时错误方向（打左闪右/打右闪左）。
+     *  80ms 对转向灯节拍（~385ms 半周期）足够快，不会吞真实信号。 */
+    private static final long DIRECTION_CONFIRM_MS = 80L;
+
     /** logcat 匹配正则: {"sub":"lamp_X"..."status":数字} */
     private static final Pattern TURN_LAMP =
             Pattern.compile("\"sub\":\"lamp_(lturn|rturn)\".*?\"status\":(-?\\d+)");
@@ -72,6 +77,9 @@ public final class AdayoTurnSignalMonitor {
     private static volatile boolean leftKnown, rightKnown;
     private static volatile boolean leftDirty, rightDirty;
     private static volatile boolean replayingHistory;
+    /** 【1839】待确认方向与起始时刻（方向变化防抖） */
+    private static volatile Direction pendingDirection;
+    private static volatile long pendingSince;
 
     /** 原始日志采样环形缓冲（诊断用：实车格式不匹配时回传定位） */
     private static final java.util.concurrent.ConcurrentLinkedQueue<String> rawSamples =
@@ -92,6 +100,8 @@ public final class AdayoTurnSignalMonitor {
         leftRaw = rightRaw = 0;
         leftKnown = rightKnown = false;
         leftDirty = rightDirty = false;
+        pendingDirection = null;
+        pendingSince = 0;
         latest.set(Snapshot.unavailable());
         worker = new Thread(AdayoTurnSignalMonitor::monitorLoop, "amap-turn-signal");
         worker.start();
@@ -275,17 +285,19 @@ public final class AdayoTurnSignalMonitor {
         }
     }
 
-    /** 根据左右灯状态判断方向 */
+    /** 根据左右灯状态判断方向
+     *  【1839 修复】仅正数视为亮：部分固件在灯未激活时输出 -1/占位值，
+     *  若按 !=0 判断会把「未激活」误判为「亮」，打左转瞬间右灯 -1 → 误报 HAZARD 双闪。 */
     static Direction directionFor(int leftStatus, int rightStatus) {
-        boolean left = leftStatus != 0;
-        boolean right = rightStatus != 0;
+        boolean left = leftStatus > 0;
+        boolean right = rightStatus > 0;
         if (left && right) return Direction.HAZARD;
         if (left) return Direction.LEFT;
         if (right) return Direction.RIGHT;
         return Direction.OFF;
     }
 
-    /** 发布状态变更（防抖：值不变不发） */
+    /** 发布状态变更（去重：值不变不发；防抖：非 OFF 方向切换需确认窗口，OFF 立即发布不卡死） */
     private static void publishIfReady(String source) {
         if (!leftKnown || !rightKnown) return;
         Direction direction = directionFor(leftRaw, rightRaw);
@@ -293,6 +305,22 @@ public final class AdayoTurnSignalMonitor {
         if (before.available
                 && before.leftRaw == leftRaw
                 && before.rightRaw == rightRaw) return;
+
+        // 【1839 防抖】非 OFF 方向切换：进入确认窗口吞掉瞬时错配（打左闪右/打右闪左）。
+        // 窗口内配对又变 → 重置窗口跟随最新方向；窗口内方向稳定 → 确认发布。
+        // OFF 不设防抖（熄灯立即发布，避免依赖后续日志行确认导致 HUD 卡亮）；
+        // 同方向仅 raw 微调不设防抖（转向灯正常节拍不受影响）。
+        if (before.available && before.direction != direction
+                && before.direction != Direction.OFF && direction != Direction.OFF) {
+            long now = SystemClock.elapsedRealtime();
+            if (pendingDirection != direction) {
+                pendingDirection = direction;
+                pendingSince = now;
+                return;
+            }
+            if (now - pendingSince < DIRECTION_CONFIRM_MS) return;
+        }
+        pendingDirection = null;
 
         Snapshot value = new Snapshot(true, direction, leftRaw, rightRaw,
                 SystemClock.elapsedRealtime());
