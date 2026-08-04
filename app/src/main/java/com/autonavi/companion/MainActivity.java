@@ -583,12 +583,12 @@ public class MainActivity extends Activity {
 
         turnShapeValue = new TextView(this);
         turnShapeValue.setTextSize(13f);
-        turnShapeValue.setTextColor(0xFF2563EB);
+        turnShapeValue.setTextColor(isDarkMode() ? 0xFF60A5FA : 0xFF2563EB);
         turnShapeValue.setPadding(dp(10), dp(6), dp(10), dp(6));
         GradientDrawable shapeBg = new GradientDrawable();
-        shapeBg.setColor(0xFFEFF6FF);
+        shapeBg.setColor(isDarkMode() ? 0xFF1E3A5F : 0xFFEFF6FF);
         shapeBg.setCornerRadius(dp(6));
-        shapeBg.setStroke(dp(1), 0xFFBFDBFE);
+        shapeBg.setStroke(dp(1), isDarkMode() ? 0xFF3B82F6 : 0xFFBFDBFE);
         turnShapeValue.setBackground(shapeBg);
         turnShapeValue.setText(turnShapeName(AppPrefs.getTurnSignalShape(this)));
         turnShapeValue.setOnClickListener(v -> showTurnShapeDialog());
@@ -614,12 +614,12 @@ public class MainActivity extends Activity {
 
         turnEffectValue = new TextView(this);
         turnEffectValue.setTextSize(13f);
-        turnEffectValue.setTextColor(0xFF2563EB);
+        turnEffectValue.setTextColor(isDarkMode() ? 0xFF60A5FA : 0xFF2563EB);
         turnEffectValue.setPadding(dp(10), dp(6), dp(10), dp(6));
         GradientDrawable effectBg = new GradientDrawable();
-        effectBg.setColor(0xFFEFF6FF);
+        effectBg.setColor(isDarkMode() ? 0xFF1E3A5F : 0xFFEFF6FF);
         effectBg.setCornerRadius(dp(6));
-        effectBg.setStroke(dp(1), 0xFFBFDBFE);
+        effectBg.setStroke(dp(1), isDarkMode() ? 0xFF3B82F6 : 0xFFBFDBFE);
         turnEffectValue.setBackground(effectBg);
         refreshTurnEffectLabel();
         turnEffectValue.setOnClickListener(v -> showTurnEffectDialog());
@@ -2193,14 +2193,14 @@ public class MainActivity extends Activity {
             content.addView(tags, tagsLp);
 
             tags.addView(appTag(choice.amapPackage ? "\u9ad8\u5fb7\u5305\u540d" : (choice.mapNamed ? "\u5730\u56fe\u5339\u914d" : "\u5168\u90e8\u5217\u8868"),
-                    choice.amapPackage ? 0xFFEFF6FF : (choice.mapNamed ? 0xFFECFDF5 : 0xFFF3F4F6),
-                    choice.amapPackage ? 0xFF1D4ED8 : (choice.mapNamed ? 0xFF047857 : 0xFF4B5563)));
+                    choice.amapPackage ? (isDarkMode() ? 0xFF1E3A5F : 0xFFEFF6FF) : (choice.mapNamed ? (isDarkMode() ? 0xFF064E3B : 0xFFECFDF5) : (isDarkMode() ? 0xFF1F2937 : 0xFFF3F4F6)),
+                    choice.amapPackage ? (isDarkMode() ? 0xFF60A5FA : 0xFF1D4ED8) : (choice.mapNamed ? (isDarkMode() ? 0xFF34D399 : 0xFF047857) : (isDarkMode() ? 0xFF9CA3AF : 0xFF4B5563))));
             tags.addView(appTag(choice.system ? "\u7cfb\u7edf\u5e94\u7528" : "\u7528\u6237\u5e94\u7528",
-                    choice.system ? 0xFFFFF7ED : 0xFFEFF6FF,
-                    choice.system ? 0xFFC2410C : 0xFF1D4ED8));
+                    choice.system ? (isDarkMode() ? 0xFF431407 : 0xFFFFF7ED) : (isDarkMode() ? 0xFF1E3A5F : 0xFFEFF6FF),
+                    choice.system ? (isDarkMode() ? 0xFFFB923C : 0xFFC2410C) : (isDarkMode() ? 0xFF60A5FA : 0xFF1D4ED8)));
             tags.addView(appTag(choice.launchable ? "\u53ef\u6253\u5f00" : "\u65e0\u684c\u9762\u56fe\u6807",
-                    choice.launchable ? 0xFFF0FDFA : 0xFFFEF2F2,
-                    choice.launchable ? 0xFF0F766E : 0xFFB91C1C));
+                    choice.launchable ? (isDarkMode() ? 0xFF042F2E : 0xFFF0FDFA) : (isDarkMode() ? 0xFF450A0A : 0xFFFEF2F2),
+                    choice.launchable ? (isDarkMode() ? 0xFF2DD4BF : 0xFF0F766E) : (isDarkMode() ? 0xFFF87171 : 0xFFB91C1C)));
             return root;
         }
 
