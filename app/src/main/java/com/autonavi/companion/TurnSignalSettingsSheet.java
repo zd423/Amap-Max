@@ -368,7 +368,7 @@ public final class TurnSignalSettingsSheet {
         t.setMinWidth(dp(64));
         r.addView(t, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
 
-        final int[] holder = {clampInt(cur, min, max)};
+        final int[] holder = {AppPrefs.clamp(cur, min, max)};
 
         // 数值显示（需先声明，预设/步进回调都要引用）
         final TextView valText = new TextView(activity);
@@ -394,7 +394,7 @@ public final class TurnSignalSettingsSheet {
             if (i > 0) cLp.setMarginStart(dp(6));
             chip.setLayoutParams(cLp);
             chip.setOnClickListener(v -> {
-                holder[0] = clampInt(pv, min, max);
+                holder[0] = AppPrefs.clamp(pv, min, max);
                 refreshAdjustRow(chips, holder, presets, valText);
                 saveInt(key, holder[0]);
                 activity.notifyTurnSignalChanged();
@@ -409,14 +409,14 @@ public final class TurnSignalSettingsSheet {
 
         // 步进按钮（长按连发）
         View minus = stepButton("−", () -> {
-            holder[0] = clampInt(holder[0] - step, min, max);
+            holder[0] = AppPrefs.clamp(holder[0] - step, min, max);
             refreshAdjustRow(chips, holder, presets, valText);
             saveInt(key, holder[0]);
             activity.notifyTurnSignalChanged();
             previewDebounced();
         });
         View plus = stepButton("+", () -> {
-            holder[0] = clampInt(holder[0] + step, min, max);
+            holder[0] = AppPrefs.clamp(holder[0] + step, min, max);
             refreshAdjustRow(chips, holder, presets, valText);
             saveInt(key, holder[0]);
             activity.notifyTurnSignalChanged();
@@ -491,10 +491,6 @@ public final class TurnSignalSettingsSheet {
         previewHandler.postDelayed(previewRunnable, 300L);
     }
 
-    private static int clampInt(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
-    }
-
     // ── 预览按钮 ──────────────────────────────────────────────
     // 三键带选中态：点击后立即蓝底白字高亮并保持到预览结束，明确"正在预览"反馈
     private final TextView[] previewBtns = new TextView[3];
@@ -561,7 +557,7 @@ public final class TurnSignalSettingsSheet {
     private void refreshEffectLabel() {
         if (effectValue == null) return;
         // 【P2-2 修复】shape==4（静态箭头）时效果不生效，值文本追加提示并置灰
-        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == 4;
+        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == AppPrefs.TURN_SHAPE_STATIC;
         effectValue.setText(effectName(AppPrefs.getTurnSignalEffect(activity))
                 + (staticShape ? "（静态箭头无效果）" : ""));
         effectValue.setTextColor(staticShape ? Color.GRAY : IOS_BLUE);
@@ -569,7 +565,7 @@ public final class TurnSignalSettingsSheet {
 
     private void showEffectSheet() {
         int cur = AppPrefs.getTurnSignalEffect(activity);
-        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == 4;
+        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == AppPrefs.TURN_SHAPE_STATIC;
         AlertDialog.Builder b = new AlertDialog.Builder(activity, R.style.IosAlert);
         b.setTitle(staticShape ? "动画特效（静态箭头无效果）" : "动画特效");
         b.setSingleChoiceItems(TURN_EFFECT_NAMES, cur, (d, which) -> {

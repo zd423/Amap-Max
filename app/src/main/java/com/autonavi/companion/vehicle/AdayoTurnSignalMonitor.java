@@ -133,7 +133,9 @@ public final class AdayoTurnSignalMonitor {
         Log.d(TAG, "Turn signal injected=" + direction
                 + " leftRaw=" + leftRaw + " rightRaw=" + rightRaw);
         for (Listener listener : listeners) {
-            try { listener.onTurnSignalChanged(value); } catch (Throwable ignored) {}
+            try { listener.onTurnSignalChanged(value); } catch (Throwable t) {
+                Log.w(TAG, "listener failed on inject", t);
+            }
         }
     }
 
@@ -300,7 +302,9 @@ public final class AdayoTurnSignalMonitor {
                 + " leftRaw=" + leftRaw + " rightRaw=" + rightRaw
                 + " source=" + source);
         for (Listener listener : listeners) {
-            try { listener.onTurnSignalChanged(value); } catch (Throwable ignored) {}
+            try { listener.onTurnSignalChanged(value); } catch (Throwable t) {
+                Log.w(TAG, "listener failed on publish", t);
+            }
         }
     }
 

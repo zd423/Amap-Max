@@ -28,7 +28,6 @@ public class TurnSignalController implements AdayoTurnSignalMonitor.Listener {
 
     private AdayoTurnSignalMonitor.Direction latchedDirection = AdayoTurnSignalMonitor.Direction.OFF;
     private AdayoTurnSignalMonitor.Direction previewDirection;
-    private AdayoTurnSignalMonitor.Direction renderedDirection = AdayoTurnSignalMonitor.Direction.OFF;
 
     private final Runnable clearLatched = new Runnable() {
         @Override
@@ -85,11 +84,6 @@ public class TurnSignalController implements AdayoTurnSignalMonitor.Listener {
         applyResolved();
     }
 
-    /** 当前实际渲染的方向，供诊断使用 */
-    public AdayoTurnSignalMonitor.Direction renderedDirection() {
-        return renderedDirection;
-    }
-
     /** 预览方向 (对应原版 previewTurnSignal, 主线程) */
     public void preview(AdayoTurnSignalMonitor.Direction direction, long durationMs) {
         if (direction == null) direction = AdayoTurnSignalMonitor.Direction.HAZARD;
@@ -107,7 +101,6 @@ public class TurnSignalController implements AdayoTurnSignalMonitor.Listener {
         handler.removeCallbacks(clearPreview);
         previewDirection = null;
         latchedDirection = AdayoTurnSignalMonitor.Direction.OFF;
-        renderedDirection = AdayoTurnSignalMonitor.Direction.OFF;
         if (overlay != null) {
             try {
                 if (overlay.getParent() instanceof android.view.ViewGroup) {
@@ -178,7 +171,6 @@ public class TurnSignalController implements AdayoTurnSignalMonitor.Listener {
     /** 渲染方向（对应原版 renderTurnSignalDirection） */
     private void renderDirection(AdayoTurnSignalMonitor.Direction direction) {
         if (overlay == null) return;
-        renderedDirection = direction;
         overlay.setDirection(direction);
     }
 }

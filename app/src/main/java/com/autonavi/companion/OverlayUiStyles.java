@@ -13,10 +13,10 @@ public final class OverlayUiStyles {
     public static final String DYNAMIC_ISLAND = "dynamic_island";
 
     public static final Style[] ALL = {
-            new Style(CARD, "卡片 UI", "卡片 UI", true),
-            new Style(CLASSIC, "经典 UI", "经典 UI", true),
-            new Style(DASHBOARD, "仪表板 UI", "仪表板 UI", true),
-            new Style(DYNAMIC_ISLAND, "灵动岛 UI", "灵动岛 UI", true)
+            new Style(CARD, "卡片 UI", "卡片 UI"),
+            new Style(CLASSIC, "经典 UI", "经典 UI"),
+            new Style(DASHBOARD, "仪表板 UI", "仪表板 UI"),
+            new Style(DYNAMIC_ISLAND, "灵动岛 UI", "灵动岛 UI")
     };
 
     private OverlayUiStyles() {
@@ -28,10 +28,6 @@ public final class OverlayUiStyles {
         if (DASHBOARD.equals(styleId)) return DASHBOARD;
         if (DYNAMIC_ISLAND.equals(styleId)) return DYNAMIC_ISLAND;
         return CARD;
-    }
-
-    public static boolean isCardLike(String styleId) {
-        return true;
     }
 
     public static int indexOf(String styleId) {
@@ -62,13 +58,11 @@ public final class OverlayUiStyles {
         public final String id;
         public final String dialogLabel;
         public final String displayName;
-        public final boolean cardLike;
 
-        public Style(String id, String dialogLabel, String displayName, boolean cardLike) {
+        public Style(String id, String dialogLabel, String displayName) {
             this.id = id;
             this.dialogLabel = dialogLabel;
             this.displayName = displayName;
-            this.cardLike = cardLike;
         }
     }
 }

@@ -60,6 +60,6 @@ public final class AmapConstants {
 
     // ── Day/Night palette ──────────────────────────────────────────────
     // [0] = day, [1] = night
-    public static final int[][] PALETTE_BG            = {{0xFF2D2D2D}, {0xFF0D0D0D}};
-    public static final int[][] PALETTE_STROKE        = {{0x80FFFFFF}, {0x4DFFFFFF}};
+    public static final int[] PALETTE_BG            = {0xFF2D2D2D, 0xFF0D0D0D};
+    public static final int[] PALETTE_STROKE        = {0x80FFFFFF, 0x4DFFFFFF};
     public static final int[]  PALETTE_PRIMARY_TEXT  = {0xFFE8EAED, 0xFFFFFFFF};}

@@ -85,6 +85,8 @@ public final class AppPrefs {
     public static final int  MAX_TURN_SIGNAL_EFFECT             = 5;
     public static final int  MIN_TURN_SIGNAL_SHAPE              = 0;
     public static final int  MAX_TURN_SIGNAL_SHAPE              = 4;          // 0..4，3 = 传统箭头，4 = 静态箭头（用户新增）
+    /** 静态箭头形状编号（无动态常亮，实车用） */
+    public static final int  TURN_SHAPE_STATIC                  = 4;
     public static final int  MIN_TURN_SIGNAL_ALPHA              = 10;
     public static final int  MAX_TURN_SIGNAL_ALPHA              = 100;
     public static final int  MIN_TURN_SIGNAL_SIZE               = 40;
@@ -359,7 +361,7 @@ public final class AppPrefs {
         return clamp(v, MIN_TURN_SIGNAL_HORIZONTAL, MAX_TURN_SIGNAL_HORIZONTAL);
     }
 
-    /** 转向箭头左侧内缩（% 屏宽），默认 0 → 左右对称布局（1300×900 全屏适配，无 1/3 避让） */
+    /** 转向箭头左侧内缩（% 屏宽），默认 30（DEFAULT_SAFE_LEFT）；值为 0 时为左右对称布局 */
     public static int getSafeLeft(Context context) {
         if (context == null) return DEFAULT_SAFE_LEFT;
         int v = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -377,28 +379,12 @@ public final class AppPrefs {
         }
     }
 
-    private static int clamp(int v, int lo, int hi) {
+    static int clamp(int v, int lo, int hi) {
         return v < lo ? lo : (v > hi ? hi : v);
     }
 
     public static boolean isCardUiEnabled(Context context) {
         return OVERLAY_UI_CARD.equals(getOverlayUiStyle(context));
-    }
-
-    public static boolean isCardLikeOverlayUiEnabled(Context context) {
-        return OverlayUiStyles.isCardLike(getOverlayUiStyle(context));
-    }
-
-    public static boolean isNewOverlayUiEnabled(Context context) {
-        return isCardLikeOverlayUiEnabled(context);
-    }
-
-    public static boolean isDynamicIslandUiEnabled(Context context) {
-        return false;
-    }
-
-    public static boolean isDynamicIslandTestUiEnabled(Context context) {
-        return false;
     }
 
     public static boolean usesDarkTextPalette(Context context) {

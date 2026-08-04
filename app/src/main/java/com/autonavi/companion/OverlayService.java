@@ -2,6 +2,7 @@ package com.autonavi.companion;
 
 import android.app.ActivityManager;
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.app.usage.UsageEvents;
@@ -46,8 +47,6 @@ import com.autonavi.companion.vehicle.TurnSignalController;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -480,7 +479,6 @@ public class OverlayService extends Service {
             dismissClusterMirror();
             return;
         }
-        activateClusterBridge();
         Display display = findClusterDisplay();
         if (display == null) {
             dismissClusterMirror();
@@ -608,14 +606,7 @@ public class OverlayService extends Service {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return true;
         }
-        try {
-            Method method = android.provider.Settings.class
-                    .getMethod("canDrawOverlays", Context.class);
-            Object result = method.invoke(null, this);
-            return result instanceof Boolean && (Boolean) result;
-        } catch (Throwable ignored) {
-            return false;
-        }
+        return android.provider.Settings.canDrawOverlays(this);
     }
 
     private void rebuildClusterMirrorForStyleChange() {
@@ -735,7 +726,6 @@ public class OverlayService extends Service {
             lightRow = lightRowXml;
         }
 
-        applyTextPalette();
         return card;
     }
 
@@ -1348,7 +1338,6 @@ public class OverlayService extends Service {
     }
 
     private void applyContentVisibilityPrefs() {
-        syncModeVisibility();
         syncTrafficLightVisibility();
         refreshPanelVisibility();
         updateClusterPosition();
@@ -1357,7 +1346,6 @@ public class OverlayService extends Service {
     private void applyPanelStyle() {
         if (panel != null) panel.setBackground(createMainPanelBackground());
         if (clusterPanel != null) clusterPanel.setBackground(createClusterPanelBackground());
-        applyTextPalette();
     }
 
     private GradientDrawable createMainPanelBackground() {
@@ -1374,10 +1362,6 @@ public class OverlayService extends Service {
         int opacity = 0;
         bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         return bg;
-    }
-
-    private void applyTextPalette() {
-        // Text palette removed in simplification
     }
 
     /** Night mode: true = night palette, false = day palette. */
@@ -1404,14 +1388,14 @@ public class OverlayService extends Service {
 
     private int nightPaletteBg(int baseOpacity) {
         return isNightMode()
-                ? AmapConstants.PALETTE_BG[1][0]   // dark night bg
-                : AmapConstants.PALETTE_BG[0][0];  // day bg
+                ? AmapConstants.PALETTE_BG[1]   // dark night bg
+                : AmapConstants.PALETTE_BG[0];  // day bg
     }
 
     private int nightPaletteStroke(int baseWhiteAlpha) {
         return isNightMode()
-                ? AmapConstants.PALETTE_STROKE[1][0]   // more transparent in night
-                : AmapConstants.PALETTE_STROKE[0][0];  // normal stroke
+                ? AmapConstants.PALETTE_STROKE[1]   // more transparent in night
+                : AmapConstants.PALETTE_STROKE[0];  // normal stroke
     }
 
     private int primaryTextColor() {
@@ -1419,11 +1403,6 @@ public class OverlayService extends Service {
                 ? AmapConstants.PALETTE_PRIMARY_TEXT[1]   // white in night
                 : AppPrefs.usesDarkTextPalette(this) ? 0xFF0F172A : AmapConstants.PALETTE_PRIMARY_TEXT[0];
     }
-
-    private void syncModeVisibility() {
-        // Mode visibility removed in simplification
-    }
-
 
     private void syncTrafficLightVisibility() {
         boolean visible = AppPrefs.isLightVisible(this)
@@ -1470,23 +1449,9 @@ public class OverlayService extends Service {
         renderTrafficLights();
     }
 
-    private boolean preferLightState(TrafficLightParser.LightState candidate, TrafficLightParser.LightState old) {
-        return TrafficLightParser.preferLightState(candidate, old);
-    }
-
     private void replaceTrafficLights(HashMap<Integer, TrafficLightParser.LightState> nextLights) {
         trafficLights.clear();
         trafficLights.putAll(nextLights);
-    }
-
-    private void mergeTrafficLights(HashMap<Integer, TrafficLightParser.LightState> nextLights) {
-        for (Map.Entry<Integer, TrafficLightParser.LightState> entry : nextLights.entrySet()) {
-            TrafficLightParser.LightState old = trafficLights.get(entry.getKey());
-            TrafficLightParser.LightState state = entry.getValue();
-            if (old == null || old.status != state.status || preferLightState(state, old)) {
-                trafficLights.put(entry.getKey(), state);
-            }
-        }
     }
 
     private void renderTrafficLights() {
@@ -1753,24 +1718,6 @@ public class OverlayService extends Service {
 
         timeText.setText(String.valueOf(seconds));
         pill.setVisibility(View.VISIBLE);
-    }
-
-    private View lightPill(TrafficLightParser.LightState state, boolean showDirectionLabel) {
-        return lightPill(this, state, showDirectionLabel);
-    }
-
-    private View lightPill(Context context, TrafficLightParser.LightState state, boolean showDirectionLabel) {
-        return lightPill(context, state, showDirectionLabel, overlayScale);
-    }
-
-    private View lightPill(Context context, TrafficLightParser.LightState state, boolean showDirectionLabel, float scale) {
-        return lightPill(context, state, showDirectionLabel, scale,
-                TrafficLightParser.currentLightSeconds(state, System.currentTimeMillis()));
-    }
-
-    private View lightPill(Context context, TrafficLightParser.LightState state, boolean showDirectionLabel,
-                           float scale, int seconds) {
-        return lightPill(context, state, showDirectionLabel, scale, seconds, false);
     }
 
     private View lightPill(Context context, TrafficLightParser.LightState state, boolean showDirectionLabel,
@@ -2331,10 +2278,6 @@ public class OverlayService extends Service {
         updateClusterPosition();
     }
 
-    private void activateClusterBridge() {
-        // Stub 闂?was used to connect to cluster display service if needed
-    }
-
     // ======================= Utility Methods =======================
 
     private boolean hasAny(Bundle extras, String... keys) {
@@ -2358,27 +2301,6 @@ public class OverlayService extends Service {
         if (value instanceof Number) return ((Number) value).intValue();
         try {
             return Integer.parseInt(String.valueOf(value));
-        } catch (Throwable ignored) {
-            return fallback;
-        }
-    }
-
-    private boolean booleanValue(Bundle extras, String key, boolean fallback) {
-        Object value = safeExtra(extras, key);
-        if (value == null) return fallback;
-        if (value instanceof Boolean) return (Boolean) value;
-        String s = String.valueOf(value);
-        if ("1".equals(s) || "true".equalsIgnoreCase(s) || "\u662f".equals(s)) return true;
-        if ("0".equals(s) || "false".equalsIgnoreCase(s) || "\u5426".equals(s)) return false;
-        return fallback;
-    }
-
-    private double doubleValue(Bundle extras, String key, double fallback) {
-        Object value = safeExtra(extras, key);
-        if (value == null) return fallback;
-        if (value instanceof Number) return ((Number) value).doubleValue();
-        try {
-            return Double.parseDouble(String.valueOf(value));
         } catch (Throwable ignored) {
             return fallback;
         }
@@ -2417,21 +2339,16 @@ public class OverlayService extends Service {
 
     private void ensureNotificationChannel(NotificationManager notificationManager) {
         try {
-            Class<?> channelClass = Class.forName("android.app.NotificationChannel");
-            Constructor<?> ctor = channelClass.getConstructor(String.class, CharSequence.class, int.class);
-            Object channel = ctor.newInstance(CHANNEL_ID, "AMap Companion", 2);
-            notificationManager.getClass()
-                    .getMethod("createNotificationChannel", channelClass)
-                    .invoke(notificationManager, channel);
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "AMap Companion",
+                    NotificationManager.IMPORTANCE_LOW);
+            notificationManager.createNotificationChannel(channel);
         } catch (Throwable ignored) {
         }
     }
 
     private Notification.Builder createNotificationBuilderWithChannel() {
         try {
-            Constructor<Notification.Builder> ctor =
-                    Notification.Builder.class.getConstructor(Context.class, String.class);
-            return ctor.newInstance(this, CHANNEL_ID);
+            return new Notification.Builder(this, CHANNEL_ID);
         } catch (Throwable ignored) {
             return new Notification.Builder(this);
         }
@@ -2448,8 +2365,6 @@ public class OverlayService extends Service {
     private float sp(float value) { return scaledSp(value, overlayScale); }
 
     private int clusterDp(float value) { return scaledDp(value, clusterScale); }
-
-    private float clusterSp(float value) { return scaledSp(value, clusterScale); }
 
     private int scaledDp(float value, float scale) {
         float density = activeDensity > 0f ? activeDensity : getResources().getDisplayMetrics().density;

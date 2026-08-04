@@ -2,6 +2,20 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-04 Karpathy 四原则修复（v1.8.9 / 1836）
+
+基于全工程 Karpathy 审查报告（`AMap_Karpathy_Review_20260804.md`）批量修复，按「编码前思考 / 简洁优先 / 精准修改 / 目标驱动执行」四原则执行，7 批次共删减死代码约 160 行：
+
+- **死代码清理（D 组）**：`MainActivity` 删除 7 个未用 URL 常量、`ArrowDrawable` 死类（30 行）、`chooseDownloadSource()` 与孤儿 `openUrl()`；`OverlayService` 删除 `activateClusterBridge` 空壳及调用点、`applyTextPalette`/`syncModeVisibility` 空体及调用点、`preferLightState`/`mergeTrafficLights`/`booleanValue`/`doubleValue`/`clusterSp` 死方法、`lightPill` 4 个死重载；`TurnSignalController` 删除 `renderedDirection` 字段及赋值；`AppPrefs` 删除 `isCardLikeOverlayUiEnabled`/`isNewOverlayUiEnabled`/`isDynamicIsland*` 系列死方法；`OverlayUiStyles` 删除恒 true 的 `isCardLike()` 与 `Style.cardLike` 字段。
+- **空壳方法（E 组）**：随 D 组一并清除（`activateClusterBridge` 乱码注释空壳、`applyTextPalette`/`syncModeVisibility` 空体等）。
+- **魔法值（M 组）**：`TurnSignalOverlayView` 5 处、`TurnSignalSettingsSheet` 2 处 `shape==4` 改用 `AppPrefs.TURN_SHAPE_STATIC` 具名常量；`TrafficLightParser` 4 处 `999` 改用 `DIR_UNSPECIFIED`。
+- **反射去重（R9）**：`MainActivity` 3 处 `startForegroundService`、`OverlayService` 的 `ensureNotificationChannel`/`createNotificationBuilderWithChannel`/`canUseOverlayWindowType` 反射调用全部改为直接调用（compileSdk=android-31 满足 API，仅保留 minSdk=23 的 SDK_INT 分支）。
+- **onDraw 对称重构（R1）**：`TurnSignalOverlayView.onDraw` 左右两侧 5 分支对称复制合并为带 `rightMirrored` 的单分支分发（含 `staticShape` 奇偶偏移修正）；`renderColor` 死字段删除，14 处引用统一为 `color`。
+- **PALETTE 结构简化**：`int[2][1]` → `int[2]`，调用点索引同步修正。
+- **静默失败补日志（S1/S2）**：`AdayoTurnSignalMonitor` 两处监听器回调 `catch (Throwable ignored){}` 补充 `Log.w`（含异常堆栈），实车监听器异常不再无从排查。
+- **注释修正**：`safe_left` 默认值矛盾注释（默认 30 非 0）、`MAX_TURN_SIGNAL_SHAPE` 增补 STATIC 说明。
+- 保留决策：`AppPrefs` 两个 `clamp` 变体边界语义不同（对称/偏置），具名封装更清晰，不合并避免过度抽象。
+
 ## 2026-08-04 代码质量优化（v1.8.8 / 1835）
 
 - **优化（P3-3）**：提取 `paintClassicArrowBody()` 公共方法 —— 一体成型燕尾箭头本体绘制（Path 构建 + 柔和 glow + 核心实色）由 `drawClassicArrow()` / `drawStaticArrow()` 共用，消除约 30 行重复代码。

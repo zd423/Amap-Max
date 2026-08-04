@@ -41,7 +41,6 @@ public final class TurnSignalOverlayView extends View {
     private boolean hostVisible = true;
 
     private int color = 0xFF35E889;
-    private int renderColor = 0xFF35E889;       // 实际绘制色（=用户选择色；转向不做夜间调光）
     private int effect;                         // 0-5
     private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头 3=传统箭头 4=静态箭头(用户新增)
     private float alphaFactor = 0.62f;          // 0.15 ~ 1.0
@@ -98,7 +97,7 @@ public final class TurnSignalOverlayView extends View {
         applyVisibility();
         boolean visible = hostVisible && isVisibleForSide();
         // 静态箭头（shape==4）不启动动画循环，实车省电
-        if (visible && effect > 0 && shape != 4) startAnimation();
+        if (visible && effect > 0 && shape != AppPrefs.TURN_SHAPE_STATIC) startAnimation();
         else stopAnimation();
         invalidate();
     }
@@ -114,7 +113,7 @@ public final class TurnSignalOverlayView extends View {
         applyVisibility();
         boolean shouldAnimate = hostVisible && isVisibleForSide();
         // 静态箭头（shape==4）不启动动画循环，实车省电
-        if (shouldAnimate && effect > 0 && shape != 4) startAnimation();
+        if (shouldAnimate && effect > 0 && shape != AppPrefs.TURN_SHAPE_STATIC) startAnimation();
         else stopAnimation();
         invalidate();
     }
@@ -137,11 +136,10 @@ public final class TurnSignalOverlayView extends View {
                 sp.getInt(AppPrefs.KEY_TURN_SIGNAL_HORIZONTAL, AppPrefs.DEFAULT_TURN_SIGNAL_HORIZONTAL) / 100f));
         safeLeftFactor = Math.max(0f, Math.min(0.45f,
                 sp.getInt(AppPrefs.KEY_SAFE_LEFT, AppPrefs.DEFAULT_SAFE_LEFT) / 100f));
-        renderColor = color;   // 转向为安全警示信号，不做夜间调光，始终用用户所选颜色
         density = getResources().getDisplayMetrics().density;
         // 效果模式可能从静态切到动态，或反之，需要同步动画状态
         // 静态箭头（shape==4）不启动动画循环，实车省电
-        boolean shouldAnimate = hostVisible && isVisibleForSide() && effect > 0 && shape != 4;
+        boolean shouldAnimate = hostVisible && isVisibleForSide() && effect > 0 && shape != AppPrefs.TURN_SHAPE_STATIC;
         if (shouldAnimate) startAnimation();
         else stopAnimation();
         invalidate();
@@ -199,7 +197,7 @@ public final class TurnSignalOverlayView extends View {
         float centerY = Math.max(
                 halfHeight + 4f * density,
                 Math.min(height - halfHeight - 4f * density, topFactor * height));
-        int baseAlpha = Math.round(Color.alpha(renderColor) * alphaFactor);
+        int baseAlpha = Math.round(Color.alpha(color) * alphaFactor);
 
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
@@ -210,45 +208,39 @@ public final class TurnSignalOverlayView extends View {
         if (direction == AdayoTurnSignalMonitor.Direction.LEFT
                 || direction == AdayoTurnSignalMonitor.Direction.HAZARD) {
             float leftBase = Math.max(edgeInset, safeLeftFactor * width);
-            if (shape == 1) {
-                drawLightBar(canvas, false, leftBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 2) {
-                drawFilledArrow(canvas, false, leftBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 3) {
-                drawClassicArrow(canvas, false, leftBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 4) {
-                drawStaticArrow(canvas, false, leftBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else {
-                drawSide(canvas, false, leftBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            }
+            drawShapeSide(canvas, false, leftBase, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
         }
         // 右侧 = RIGHT 方向或 HAZARD
         if (direction == AdayoTurnSignalMonitor.Direction.RIGHT
                 || direction == AdayoTurnSignalMonitor.Direction.HAZARD) {
             float rightBase = width - edgeInset;
-            if (shape == 1) {
-                drawLightBar(canvas, true, rightBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 2) {
-                drawFilledArrow(canvas, true, rightBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 3) {
-                drawClassicArrow(canvas, true, rightBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else if (shape == 4) {
-                drawStaticArrow(canvas, true, rightBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            } else {
-                drawSide(canvas, true, rightBase, centerY, spacing,
-                        halfWidth, halfHeight, density, baseAlpha);
-            }
+            drawShapeSide(canvas, true, rightBase, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
         }
         paint.clearShadowLayer();
+    }
+
+    /** 按当前 shape 绘制单侧箭头（左右共用，避免两侧 5 分支 if-else 复制两遍） */
+    private void drawShapeSide(Canvas canvas, boolean rightMirrored,
+            float base, float centerY, float spacing,
+            float halfWidth, float halfHeight, float density, int baseAlpha) {
+        if (shape == 1) {
+            drawLightBar(canvas, rightMirrored, base, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
+        } else if (shape == 2) {
+            drawFilledArrow(canvas, rightMirrored, base, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
+        } else if (shape == 3) {
+            drawClassicArrow(canvas, rightMirrored, base, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
+        } else if (shape == AppPrefs.TURN_SHAPE_STATIC) {
+            drawStaticArrow(canvas, rightMirrored, base, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
+        } else {
+            drawSide(canvas, rightMirrored, base, centerY, spacing,
+                    halfWidth, halfHeight, density, baseAlpha);
+        }
     }
 
     /**
@@ -269,11 +261,11 @@ public final class TurnSignalOverlayView extends View {
 
             // --- 外层发光 (shadowRadius=10) ---
             int edgeColor = Color.argb(alpha,
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+                    Color.red(color), Color.green(color), Color.blue(color));
             paint.setStrokeWidth(7f * density * sizeFactor);
             paint.setColor(Color.argb(
                     Math.round(alpha * 0.22f),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.red(color), Color.green(color), Color.blue(color)));
             paint.setShadowLayer(10f * density * sizeFactor, 0, 0, edgeColor);
             buildChevron(centerX, centerY, halfWidth, halfHeight, rightMirrored);
             canvas.drawPath(path, paint);
@@ -339,9 +331,9 @@ public final class TurnSignalOverlayView extends View {
             // 外层 glow
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(Color.argb(Math.round(alpha * 0.30f),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.red(color), Color.green(color), Color.blue(color)));
             paint.setShadowLayer(12f * density * sizeFactor, 0, 0,
-                    Color.argb(alpha, Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)));
             canvas.drawRoundRect(centerX - ledW / 2f, centerY - ledH / 2f,
                     centerX + ledW / 2f, centerY + ledH / 2f,
                     ledW / 2f, ledW / 2f, paint);
@@ -349,7 +341,7 @@ public final class TurnSignalOverlayView extends View {
             // 核心灯珠
             paint.setShadowLayer(0f, 0, 0, 0);
             paint.setColor(Color.argb(alpha,
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.red(color), Color.green(color), Color.blue(color)));
             canvas.drawRoundRect(centerX - ledW / 2f, centerY - ledH / 2f,
                     centerX + ledW / 2f, centerY + ledH / 2f,
                     ledW / 2f, ledW / 2f, paint);
@@ -383,13 +375,13 @@ public final class TurnSignalOverlayView extends View {
 
             // 外层 glow
             int edgeColor = Color.argb(alpha,
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+                    Color.red(color), Color.green(color), Color.blue(color));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setStrokeWidth(strokeW * 1.6f);
             paint.setColor(Color.argb(Math.round(alpha * 0.20f),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.red(color), Color.green(color), Color.blue(color)));
             paint.setShadowLayer(12f * density * sizeFactor, 0, 0, edgeColor);
             buildChevron(centerX, centerY, halfWidth, halfHeight, rightMirrored);
             canvas.drawPath(path, paint);
@@ -441,7 +433,7 @@ public final class TurnSignalOverlayView extends View {
             float intensity = effectIntensity(i);
             int alpha = Math.max(18, Math.round(baseAlpha * intensity));
             int edgeColor = Color.argb(alpha,
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+                    Color.red(color), Color.green(color), Color.blue(color));
 
             // 共用绘制：一体成型燕尾箭头 + 柔和 glow + 核心实色（P3-3 提取）
             paintClassicArrowBody(canvas, centerX, centerY, rightMirrored, alpha, edgeColor);
@@ -476,7 +468,7 @@ public final class TurnSignalOverlayView extends View {
         // 外层柔和 glow（灯珠光晕质感：大半径低透明度）
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(Math.round(alpha * 0.18f),
-                Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                Color.red(color), Color.green(color), Color.blue(color)));
         paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
         canvas.drawPath(path, paint);
 
@@ -501,7 +493,7 @@ public final class TurnSignalOverlayView extends View {
         // 静态：恒定亮度，不乘 effectIntensity，不参与相位动画
         int alpha = Math.max(18, baseAlpha);
         int edgeColor = Color.argb(alpha,
-                Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+                Color.red(color), Color.green(color), Color.blue(color));
 
         // 共用绘制：一体成型燕尾箭头 + 柔和 glow + 核心实色（P3-3 提取）
         paintClassicArrowBody(canvas, centerX, centerY, rightMirrored, alpha, edgeColor);
@@ -547,7 +539,7 @@ public final class TurnSignalOverlayView extends View {
             float radius = ((1f - travel) * 2.2f + 1.4f) * density * sizeFactor;
             paint.setColor(Color.argb(
                     Math.round(baseAlpha * (1f - travel)),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+                    Color.red(color), Color.green(color), Color.blue(color)));
             canvas.drawCircle(x, centerY, radius, paint);
         }
         paint.setStyle(Paint.Style.STROKE);

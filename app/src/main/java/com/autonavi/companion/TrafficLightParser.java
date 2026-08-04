@@ -128,7 +128,7 @@ public final class TrafficLightParser {
             int red = valueAt(reds, i, intValue(extras, "redLightCountDownSeconds", 0));
             int green = valueAt(greens, i, intValue(extras, "greenLightLastSecond", 0));
             int seconds = secondsForLight(status, red, green);
-            int key = dir >= 0 ? dir : 999;
+            int key = dir >= 0 ? dir : AmapConstants.DIR_UNSPECIFIED;
             if (seconds > 0) {
                 putLightState(nextLights, key, dir, status, red, green, seconds,
                         setInCruiseMode, navigationTurnDir, currentTurnIcon);
@@ -438,7 +438,7 @@ public final class TrafficLightParser {
         }
         int dir = normalizeCruiseCameraDirection(cameraDir);
         int status = normalizeCruiseCameraStatus(cameraStatus);
-        putLightState(target, dir >= 0 ? dir : 999, dir, status,
+        putLightState(target, dir >= 0 ? dir : AmapConstants.DIR_UNSPECIFIED, dir, status,
                 isRedLightStatus(status) ? countDown : 0,
                 isGreenLightStatus(status) ? countDown : 0, countDown,
                 true, -1, 0);
@@ -554,7 +554,7 @@ public final class TrafficLightParser {
                 object.optInt("greenLightCountdownSeconds", object.optInt("greenSeconds", 0))));
         int seconds = secondsForLight(status, red, green);
         if (seconds > 0) {
-            int key = dir >= 0 ? dir : 999;
+            int key = dir >= 0 ? dir : AmapConstants.DIR_UNSPECIFIED;
             putLightState(target, key, dir, status, red, green, seconds, false, -1, 0);
             handled = true;
         }
@@ -591,7 +591,7 @@ public final class TrafficLightParser {
             return false;
         }
         int status = keys[0].toLowerCase(java.util.Locale.US).contains("green") ? 4 : 1;
-        putLightState(target, dir >= 0 ? dir : 999, dir, status, status == 1 ? seconds : 0,
+        putLightState(target, dir >= 0 ? dir : AmapConstants.DIR_UNSPECIFIED, dir, status, status == 1 ? seconds : 0,
                 status == 4 ? seconds : 0, seconds, false, -1, 0);
         return true;
     }

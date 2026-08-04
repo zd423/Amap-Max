@@ -57,13 +57,6 @@ public class MainActivity extends Activity {
     static final String EXTRA_OPEN_SETTINGS = "open_companion_settings";
     private static final String KEY_LAST_DESKTOP_LAUNCH_AT = "last_desktop_launch_at";
     private static final long DOUBLE_DESKTOP_LAUNCH_WINDOW_MS = 30_000L;
-    static final String HOMEPAGE_URL = "https://amap-companion.zuoqirun.top";
-    static final String REPOSITORY_URL = "https://github.com/zuo-qirun/amap-companion";
-    static final String LICENSE_URL = "https://github.com/zuo-qirun/amap-companion/blob/master/LICENSE";
-    static final String CUSTOM_MAP_SKILL_URL = "https://github.com/zuo-qirun/amap-cruise-wrapper-skill";
-    static final String CUSTOM_MAP_APK_URL = "https://github.com/zuo-qirun/amap-cruise-wrapper-skill/releases/download/v20260523-cruise-wrapper/amap-auto-cruise-wrapper-20260523.apk";
-    static final String CUSTOM_MAP_SKILL_MIRROR_URL = "https://gh-proxy.com/https://github.com/zuo-qirun/amap-cruise-wrapper-skill/archive/refs/heads/master.zip";
-    static final String CUSTOM_MAP_APK_MIRROR_URL = "https://gh.llkk.cc/https://github.com/zuo-qirun/amap-cruise-wrapper-skill/releases/download/v20260523-cruise-wrapper/amap-auto-cruise-wrapper-20260523.apk";
     private static final String TARGET_PACKAGE_PREFIX = "com.autonavi.";
 
     private TextView targetText;
@@ -134,11 +127,6 @@ public class MainActivity extends Activity {
         if (serviceSwitch != null) {
             serviceSwitch.postDelayed(serviceSwitchRefresh, 500);
         }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
     }
 
     @Override
@@ -892,12 +880,7 @@ public class MainActivity extends Activity {
         direct.putExtra(AppPrefs.EXTRA_TURN_SIGNAL_PREVIEW, direction);
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                try {
-                    Context.class.getMethod("startForegroundService", Intent.class)
-                            .invoke(this, direct);
-                } catch (Throwable ignored) {
-                    startService(direct);
-                }
+                startForegroundService(direct);
             } else {
                 startService(direct);
             }
@@ -1238,38 +1221,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 绘制三角形箭头的 Drawable */
-    private static class ArrowDrawable extends android.graphics.drawable.Drawable {
-        private final int color;
-        private final int direction; // 0=左,1=上,2=右,3=下
-        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-
-        ArrowDrawable(int c, int dir) { color = c; direction = dir; paint.setStyle(android.graphics.Paint.Style.FILL); }
-
-        @Override public void setAlpha(int a) { paint.setAlpha(a); }
-        @Override public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
-        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
-
-        @Override public void draw(android.graphics.Canvas canvas) {
-            float cx = getBounds().centerX(), cy = getBounds().centerY();
-            float s = Math.min(getBounds().width(), getBounds().height()) * 0.28f;
-            android.graphics.Path path = new android.graphics.Path();
-            switch (direction) {
-                case 0: // 左 - 尖角朝左，底边在右
-                    path.moveTo(cx + s * 0.3f, cy - s); path.lineTo(cx - s, cy); path.lineTo(cx + s * 0.3f, cy + s); break;
-                case 1: // 上 - 尖角朝上，底边在下
-                    path.moveTo(cx - s, cy + s * 0.3f); path.lineTo(cx, cy - s); path.lineTo(cx + s, cy + s * 0.3f); break;
-                case 2: // 右 - 尖角朝右，底边在左
-                    path.moveTo(cx - s * 0.3f, cy - s); path.lineTo(cx + s, cy); path.lineTo(cx - s * 0.3f, cy + s); break;
-                case 3: // 下 - 尖角朝下，底边在上
-                    path.moveTo(cx - s, cy - s * 0.3f); path.lineTo(cx, cy + s); path.lineTo(cx + s, cy - s * 0.3f); break;
-            }
-            path.close();
-            paint.setColor(color);
-            canvas.drawPath(path, paint);
-        }
-    }
-
     private void showDirectionPadDialog() {
         int btnSize = dp(68);
         int bigRadius = dp(80);
@@ -1588,7 +1539,7 @@ public class MainActivity extends Activity {
         Intent intent = new Intent(context, OverlayService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                Context.class.getMethod("startForegroundService", Intent.class).invoke(context, intent);
+                context.startForegroundService(intent);
             } catch (Throwable ignored) {
                 context.startService(intent);
             }
@@ -1722,14 +1673,6 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void openUrl(String url) {
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(intent);
-        } catch (Throwable t) {
-            Toast.makeText(this, "\u65e0\u6cd5\u6253\u5f00\u94fe\u63a5", Toast.LENGTH_SHORT).show();
-        }
-    }
 
 
 
@@ -1745,24 +1688,6 @@ public class MainActivity extends Activity {
 
 
 
-
-
-    private void chooseDownloadSource(String title, String githubUrl, String mirrorUrl) {
-        String[] labels = {
-                "\u955c\u50cf\u7ad9\uff08\u4e0b\u8f7d ZIP\uff0c\u5feb\uff09\n" + mirrorUrl,
-                "GitHub \u539f\u7ad9\uff08\u53ef\u80fd\u8f83\u6162\uff09\n" + githubUrl
-        };
-        iosAlertBuilder()
-                .setTitle(title)
-                .setItems(labels, (dialog, which) -> {
-                    if (which == 0) {
-                        openUrl(mirrorUrl);
-                    } else {
-                        openUrl(githubUrl);
-                    }
-                })
-                .show();
-    }
 
     private void updateTargetText() {
         if (targetText != null) {
@@ -2104,7 +2029,7 @@ public class MainActivity extends Activity {
         Intent direct = new Intent(this, OverlayService.class);
         direct.setAction(action);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try { Context.class.getMethod("startForegroundService", Intent.class).invoke(this, direct); } catch (Throwable ignored) { startService(direct); }
+            try { startForegroundService(direct); } catch (Throwable ignored) { startService(direct); }
         } else {
             startService(direct);
         }
