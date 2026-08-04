@@ -43,7 +43,7 @@ public final class TurnSignalOverlayView extends View {
     private int color = 0xFF35E889;
     private int renderColor = 0xFF35E889;       // 实际绘制色（=用户选择色；转向不做夜间调光）
     private int effect;                         // 0-5
-    private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头
+    private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头 3=传统箭头(用户新增)
     private float alphaFactor = 0.62f;          // 0.15 ~ 1.0
     private float sizeFactor = 1.0f;            // 0.6 ~ 1.8
     private float topFactor = 0.50f;            // 0.08 ~ 0.92
@@ -213,6 +213,9 @@ public final class TurnSignalOverlayView extends View {
             } else if (shape == 2) {
                 drawFilledArrow(canvas, false, leftBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
+            } else if (shape == 3) {
+                drawClassicArrow(canvas, false, leftBase, centerY, spacing,
+                        halfWidth, halfHeight, density, baseAlpha);
             } else {
                 drawSide(canvas, false, leftBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
@@ -227,6 +230,9 @@ public final class TurnSignalOverlayView extends View {
                         halfWidth, halfHeight, density, baseAlpha);
             } else if (shape == 2) {
                 drawFilledArrow(canvas, true, rightBase, centerY, spacing,
+                        halfWidth, halfHeight, density, baseAlpha);
+            } else if (shape == 3) {
+                drawClassicArrow(canvas, true, rightBase, centerY, spacing,
                         halfWidth, halfHeight, density, baseAlpha);
             } else {
                 drawSide(canvas, true, rightBase, centerY, spacing,
@@ -408,6 +414,77 @@ public final class TurnSignalOverlayView extends View {
         path.moveTo(tailX, centerY - halfHeight);
         path.lineTo(tipX, centerY);
         path.lineTo(tailX, centerY + halfHeight);
+    }
+
+    /**
+     * 【2026-08-03 用户新增】传统箭头：经典实心转向指示灯图形（三角头 + 短杆），
+     * FILL 填充 + glow 发光，画 2 个（传统箭头单体更大更醒目，2 个足够辨识）。
+     */
+    private void drawClassicArrow(Canvas canvas, boolean rightMirrored,
+            float firstCenter, float centerY, float spacing,
+            float halfWidth, float halfHeight, float density, int baseAlpha) {
+        float headW = 24f * density * sizeFactor;   // 头长
+        float headH = 34f * density * sizeFactor;   // 头高
+        float barL = 14f * density * sizeFactor;    // 杆长
+        float barW = 12f * density * sizeFactor;    // 杆宽
+        for (int i = 0; i < 2; i++) {
+            float centerX = rightMirrored
+                    ? firstCenter - i * spacing
+                    : firstCenter + i * spacing;
+            float intensity = effectIntensity(i);
+            int alpha = Math.max(18, Math.round(baseAlpha * intensity));
+            int edgeColor = Color.argb(alpha,
+                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+
+            buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
+
+            // 外层 glow
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.argb(Math.round(alpha * 0.22f),
+                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+            paint.setShadowLayer(12f * density * sizeFactor, 0, 0, edgeColor);
+            canvas.drawPath(path, paint);
+
+            // 核心实色
+            paint.setShadowLayer(4f * density * sizeFactor, 0, 0, edgeColor);
+            paint.setColor(edgeColor);
+            canvas.drawPath(path, paint);
+
+            // effect=2 高亮闪烁（2 个箭头取 0/1 交替）
+            if (effect == 2) {
+                int flashIndex = Math.min(1, (int) (phase * 2f));
+                if (i == flashIndex) {
+                    paint.clearShadowLayer();
+                    paint.setColor(Color.argb(Math.min(255, alpha + 70), 255, 255, 255));
+                    canvas.drawPath(path, paint);
+                }
+            }
+        }
+        paint.clearShadowLayer();
+        paint.setStyle(Paint.Style.STROKE);
+    }
+
+    /** 构建传统箭头 Path：实心三角头 + 短杆（尖朝右=rightMirrored true） */
+    private void buildClassicArrowPath(float centerX, float centerY,
+            float headW, float headH, float barL, float barW, boolean rightMirrored) {
+        path.reset();
+        float sign = rightMirrored ? 1f : -1f;
+        float tipX = centerX + sign * headW;
+        float tailX = centerX - sign * headW;
+        float headHalf = headH / 2f;
+        float barHalf = barW / 2f;
+        float barEndX = tailX - sign * barL;
+        // 头三角形
+        path.moveTo(tipX, centerY);               // 尖端
+        path.lineTo(tailX, centerY - headHalf);   // 上角
+        path.lineTo(tailX, centerY + headHalf);   // 下角
+        path.close();
+        // 杆（从头基部向尾延伸的矩形）
+        path.moveTo(tailX, centerY - barHalf);
+        path.lineTo(barEndX, centerY - barHalf);
+        path.lineTo(barEndX, centerY + barHalf);
+        path.lineTo(tailX, centerY + barHalf);
+        path.close();
     }
 
     /** effect=4 的粒子拖尾（5 个渐变圆） */
