@@ -479,6 +479,7 @@ public final class TurnSignalOverlayView extends View {
      * 【2026-08-04 用户新增·实车】静态箭头：复用一体成型燕尾箭头造型（B 版），
      * 但完全无动态 —— 恒定亮度（不随 phase/intensity 变化）、无白闪、无呼吸/流动。
      * 实车场景：按方向点亮后静止显示，干净利落；同时上层动画循环被 shape!=4 条件停掉，不白耗 CPU。
+     * 【2026-08-04 用户确认】静态箭头每侧仅 1 个（循环 2→1），更贴近真车转向灯直觉。
      */
     private void drawStaticArrow(Canvas canvas, boolean rightMirrored,
             float firstCenter, float centerY, float spacing,
@@ -487,7 +488,7 @@ public final class TurnSignalOverlayView extends View {
         float headH = 36f * density * sizeFactor;
         float barL = 16f * density * sizeFactor;
         float barW = 13f * density * sizeFactor;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 1; i++) {
             float centerX = rightMirrored
                     ? firstCenter - i * spacing
                     : firstCenter + i * spacing;
