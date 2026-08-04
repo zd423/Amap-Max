@@ -62,9 +62,11 @@ public class TurnSignalController implements AdayoTurnSignalMonitor.Listener {
             overlay = new TurnSignalOverlayView(context);
         }
         if (overlay.getParent() != null) return;
+        // 高度 WRAP_CONTENT：让 onMeasure 按箭头内容高度测量，悬浮窗贴合箭头、
+        // 不再铺满全屏（垂直位置由宿主窗口 y 坐标 topFactor 决定）
         host.addView(overlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
+                FrameLayout.LayoutParams.WRAP_CONTENT));
         overlay.setHostVisible(true);
         applySnapshotDirect(AdayoTurnSignalMonitor.snapshot());
     }

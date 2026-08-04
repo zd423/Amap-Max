@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.autonavi.companion"
-    android:versionCode="1836"
-    android:versionName="1.8.9">
+    android:versionCode="1838"
+    android:versionName="1.8.11">
     <uses-sdk
         android:minSdkVersion="23"
         android:targetSdkVersion="31" />

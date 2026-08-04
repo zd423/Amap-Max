@@ -45,7 +45,6 @@ public final class TurnSignalOverlayView extends View {
     private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头 3=传统箭头 4=静态箭头(用户新增)
     private float alphaFactor = 0.62f;          // 0.15 ~ 1.0
     private float sizeFactor = 1.0f;            // 0.6 ~ 1.8
-    private float topFactor = 0.50f;            // 0.08 ~ 0.92
     private float horizontalInsetFactor;        // 0.0 ~ 0.42
     private float safeLeftFactor;               // 0.0 ~ 0.45 左侧内缩（默认 0 → 左右对称）
     private float density = 1f;
@@ -130,8 +129,6 @@ public final class TurnSignalOverlayView extends View {
                 sp.getInt(AppPrefs.KEY_TURN_SIGNAL_ALPHA, AppPrefs.DEFAULT_TURN_SIGNAL_ALPHA) / 100f));
         sizeFactor = Math.max(0.6f, Math.min(1.8f,
                 sp.getInt(AppPrefs.KEY_TURN_SIGNAL_SIZE, AppPrefs.DEFAULT_TURN_SIGNAL_SIZE) / 100f));
-        topFactor = Math.max(0.08f, Math.min(0.92f,
-                sp.getInt(AppPrefs.KEY_TURN_SIGNAL_TOP, AppPrefs.DEFAULT_TURN_SIGNAL_TOP) / 100f));
         horizontalInsetFactor = Math.max(0f, Math.min(0.42f,
                 sp.getInt(AppPrefs.KEY_TURN_SIGNAL_HORIZONTAL, AppPrefs.DEFAULT_TURN_SIGNAL_HORIZONTAL) / 100f));
         safeLeftFactor = Math.max(0f, Math.min(0.45f,
@@ -142,6 +139,8 @@ public final class TurnSignalOverlayView extends View {
         boolean shouldAnimate = hostVisible && isVisibleForSide() && effect > 0 && shape != AppPrefs.TURN_SHAPE_STATIC;
         if (shouldAnimate) startAnimation();
         else stopAnimation();
+        // 尺寸（sizeFactor）变化会改变 onMeasure 计算的内容高度 → 必须重跑 measure/layout
+        requestLayout();
         invalidate();
     }
 
@@ -181,6 +180,23 @@ public final class TurnSignalOverlayView extends View {
 
     // ---- 绘制 ----
 
+    /**
+     * 窗口高度贴合箭头内容：箭头垂直居中于窗口内（悬浮窗不再铺满全屏，
+     * 垂直位置由宿主窗口的 y 坐标（topFactor）决定，消除箭头下方大片空白）。
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int width = resolveSize(getSuggestedMinimumWidth(), widthMeasureSpec);
+        // 内容高度 = 箭头总高（2×halfHeight）+ 上下各 4dp 留白
+        int contentHeight = Math.round(2f * halfHeight() + 8f * density);
+        setMeasuredDimension(width, contentHeight);
+    }
+
+    /** 箭头单侧半高（与 onDraw 保持同一公式） */
+    private float halfHeight() {
+        return 19f * density * sizeFactor;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -194,9 +210,8 @@ public final class TurnSignalOverlayView extends View {
         float halfHeight = 19f * density * sizeFactor;       // chevron 半高
         float spacing = 18f * density * sizeFactor;          // 箭头间距
         float edgeInset = Math.max(18f * density, horizontalInsetFactor * width);
-        float centerY = Math.max(
-                halfHeight + 4f * density,
-                Math.min(height - halfHeight - 4f * density, topFactor * height));
+        // 窗口高度已贴合箭头内容 → 垂直居中，不再用 topFactor*height（窗口 y 由宿主定位）
+        float centerY = height / 2f;
         int baseAlpha = Math.round(Color.alpha(color) * alphaFactor);
 
         paint.setStyle(Paint.Style.STROKE);

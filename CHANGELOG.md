@@ -2,6 +2,24 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-04 设置弹窗高度贴合内容（v1.8.11 / 1838）
+
+修复实车反馈「极狐转向设置弹窗太高、底部一大片空白」：`TurnSignalSettingsSheet` 弹窗原为固定 **85% 屏高**（1300×900 屏 = 765px），内部 ScrollView 又设 `weight=1f` + `fillViewport=true`，即使实际内容仅 ~500px 也会撑满整个窗口。
+
+- **窗口高度 WRAP_CONTENT**：Dialog 窗口从 `setLayout(w, 85%屏高)` 改为 `setLayout(w, WRAP_CONTENT)`，弹窗高度完全由内容决定。
+- **ScrollView 去除 weight 撑满**：ScrollView 的 LayoutParams 从 `(MATCH_PARENT, 0, weight=1f)` 改为 `(MATCH_PARENT, WRAP_CONTENT)`，不再吃掉标题栏下方的全部剩余空间。
+- 效果：弹窗从 ~765px 高收窄到紧贴内容的 ~520px（具体值随 density 浮动），底部空白彻底消除。
+
+## 2026-08-04 转向弹窗高度贴合箭头内容（v1.8.10 / 1837）
+
+修复实车反馈「极狐转向弹窗太高、底下一大片空白」：转向悬浮窗（副屏 HUD）原为 `MATCH_PARENT`×`MATCH_PARENT` 全屏窗口（720 高），箭头按 topFactor 画在屏高 40% 处，下方 432px 全是空白窗口。
+
+- **窗口高度贴合箭头内容**：`TurnSignalOverlayView.onMeasure` 返回内容高度（`2×halfHeight + 8dp` 留白），`TurnSignalController.attachToHost` 与 `OverlayService.attachClusterTurnSignalWindow` 的高度参数 `MATCH_PARENT → WRAP_CONTENT`。模拟器实测窗口高度从 720px 收窄到 115px（= 2×19×2.5 + 8×2.5，与公式精确一致）。
+- **窗口 y 对准 topFactor**：新增 `OverlayService.positionClusterTurnSignalWindow()` —— 窗口高度贴合后，把窗口 y 定位到 `topFactor×屏高 − 内容高/2`（箭头中心 = topFactor，默认 40%），clamp 到设置范围（8..92）；挂载后 `post()` + layout listener 双保险确保首次 layout 完成后定位，`refreshTurnSignalOverlay` 末尾补重定位（尺寸/topFactor 变更后即时生效）。
+- **箭头垂直居中**：`onDraw` 的 `centerY` 由 `topFactor*height` 改为 `height/2f`（窗口已贴合，垂直位置由宿主窗口 y 决定）。
+- **尺寸变更即时生效**：`refreshPreferences()` 补 `requestLayout()`（原先只 `invalidate()`，onMeasure 不会重跑，尺寸滑块调整后内容高度不刷新）。
+- 模拟器回归：LEFT/RIGHT/HAZARD 三向箭头均渲染在副屏 40% 垂直位置（窗口 frame=[0,231][1280,346]，箭头中心 288.5 ≈ 40%×720），底部空白消除。
+
 ## 2026-08-04 Karpathy 四原则修复（v1.8.9 / 1836）
 
 基于全工程 Karpathy 审查报告（`AMap_Karpathy_Review_20260804.md`）批量修复，按「编码前思考 / 简洁优先 / 精准修改 / 目标驱动执行」四原则执行，7 批次共删减死代码约 160 行：

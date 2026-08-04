@@ -235,18 +235,17 @@ public final class TurnSignalSettingsSheet {
         content.addView(section(preview));
 
         scroll.addView(content, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        root.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f));
+        root.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
         dialog.setContentView(root);
 
         Window w = dialog.getWindow();
         if (w != null) {
-            // 【2026-08-03 用户再调】宽度 45% 屏宽 + 高度 85% 屏高（宽度 75%→65%→50%→47.5%→45% 逐步收窄）；
-            // 1300×900 → 585×765px。
+            // 宽度 45% 屏宽；高度 WRAP_CONTENT 贴合内容（不再固定 85% 屏高导致底部大片空白），
+            // 上限 80% 屏高防极端配置溢出。
             DisplayMetrics dm = activity.getResources().getDisplayMetrics();
             int wPx = (int) (dm.widthPixels * 0.45);
-            int maxH = (int) (dm.heightPixels * 0.85);
-            w.setLayout(wPx, maxH);
+            w.setLayout(wPx, WRAP_CONTENT);
             w.setGravity(Gravity.CENTER);
             w.setBackgroundDrawableResource(android.R.color.transparent);
         }

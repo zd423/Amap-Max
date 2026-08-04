@@ -1017,6 +1017,13 @@ public class OverlayService extends Service {
                 Log.e(TAG, "cluster turn signal refresh failed", t);
             }
         }
+        // 尺寸/位置设置变更后窗口内容高度与 topFactor 可能变化 → 重新对准 y
+        if (turnClusterHost != null) {
+            // 尺寸类设置：内容高度变化 → 等新 layout 完成后按新高度定位
+            repositionClusterTurnSignalWindowWhenReady();
+            // 纯 topFactor 变更：内容高度不变 → 立即按新百分比定位
+            positionClusterTurnSignalWindow();
+        }
     }
 
     /**
@@ -1067,7 +1074,7 @@ public class OverlayService extends Service {
                     : WindowManager.LayoutParams.TYPE_PHONE;
             turnClusterParams = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
                     type,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -1086,6 +1093,8 @@ public class OverlayService extends Service {
             }
             turnClusterController.attachToHost(turnClusterHost);
             turnClusterController.onWindowVisibilityChanged(true);
+            // 窗口高度贴合箭头内容后，等首次 layout 完成拿到内容高度，把窗口 y 对准 topFactor
+            repositionClusterTurnSignalWindowWhenReady();
             Log.d(TAG, "attachClusterTurnSignalWindow OK display=" + display.getDisplayId()
                     + " flags=" + display.getFlags() + " name=" + display.getName());
             return true;
@@ -1094,6 +1103,50 @@ public class OverlayService extends Service {
             dismissClusterTurnSignalWindow();
             return false;
         }
+    }
+
+    /** 窗口高度贴合箭头内容后，把窗口 y 对准 topFactor（箭头中心 = topFactor × 屏高）。
+     *  调用前需等 layout 完成（有内容高度可读）。 */
+    private void positionClusterTurnSignalWindow() {
+        if (turnClusterWindowManager == null || turnClusterHost == null
+                || turnClusterHost.getParent() == null || turnClusterParams == null
+                || turnClusterDisplay == null) {
+            return;
+        }
+        int contentHeight = turnClusterHost.getHeight();
+        if (contentHeight <= 0) return;
+        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+        try {
+            turnClusterDisplay.getRealMetrics(dm);
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (dm.heightPixels <= 0) return;
+        int topPct = AppPrefs.getTurnSignalTop(this); // 已 clamp 到 MIN..MAX（8..92）
+        int y = Math.round(topPct / 100f * dm.heightPixels - contentHeight / 2f);
+        y = Math.max(0, Math.min(dm.heightPixels - contentHeight, y));
+        turnClusterParams.y = y;
+        try {
+            turnClusterWindowManager.updateViewLayout(turnClusterHost, turnClusterParams);
+        } catch (Throwable t) {
+            Log.e(TAG, "cluster turn signal position update failed", t);
+        }
+    }
+
+    /** 等窗口完成一次 layout（内容高度可读）后重新对准 y。
+     *  用 layout listener 而非 post()：post 可能在首次 layout 前执行（高度仍为 0）而静默跳过；
+     *  listener 保证 measure/layout 完成后才读高度。 */
+    private void repositionClusterTurnSignalWindowWhenReady() {
+        if (turnClusterHost == null) return;
+        turnClusterHost.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                if (bottom - top <= 0) return; // 尚无真实高度，等下一次 layout
+                v.removeOnLayoutChangeListener(this); // 一次性：只对准一次
+                positionClusterTurnSignalWindow();
+            }
+        });
     }
 
     /** 回收副屏（HUD）转向窗口与控制器（监控线程由调用方决定是否一并停止） */
