@@ -2,6 +2,12 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-04 代码质量优化（v1.8.8 / 1835）
+
+- **优化（P3-3）**：提取 `paintClassicArrowBody()` 公共方法 —— 一体成型燕尾箭头本体绘制（Path 构建 + 柔和 glow + 核心实色）由 `drawClassicArrow()` / `drawStaticArrow()` 共用，消除约 30 行重复代码。
+- **优化（P3-1）**：`drawStaticArrow()` 去掉恒 1 次的 `for (i < 1)` 循环，直接取 `firstCenter`；`spacing`/`halfWidth`/`halfHeight` 未用参数保留签名并注释说明（便于未来恢复双箭头）。
+- 纯维护性重构，渲染行为零变化（箭头像素与 1834 逐帧一致）。
+
 ## 2026-08-04 代码审查修复（v1.8.7 / 1834）
 
 - **修复（P2-1）**：`findClusterDisplay()` 在 prefs 指定 `cluster_display_id` 找不到对应 Display 时，补充警告日志（含目标 id 与当前 Display 数量），避免虚拟副屏重建后挂载静默失败无从排查。

@@ -434,10 +434,6 @@ public final class TurnSignalOverlayView extends View {
     private void drawClassicArrow(Canvas canvas, boolean rightMirrored,
             float firstCenter, float centerY, float spacing,
             float halfWidth, float halfHeight, float density, int baseAlpha) {
-        float headW = 26f * density * sizeFactor;   // 头长
-        float headH = 36f * density * sizeFactor;   // 头高
-        float barL = 16f * density * sizeFactor;    // 杆长
-        float barW = 13f * density * sizeFactor;    // 杆宽
         for (int i = 0; i < 2; i++) {
             float centerX = rightMirrored
                     ? firstCenter - i * spacing
@@ -447,19 +443,8 @@ public final class TurnSignalOverlayView extends View {
             int edgeColor = Color.argb(alpha,
                     Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
 
-            buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
-
-            // 外层柔和 glow（灯珠光晕质感：大半径低透明度）
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(Math.round(alpha * 0.18f),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
-            paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
-            canvas.drawPath(path, paint);
-
-            // 核心实色（带轻光晕，边缘不锐利）
-            paint.setShadowLayer(6f * density * sizeFactor, 0, 0, edgeColor);
-            paint.setColor(edgeColor);
-            canvas.drawPath(path, paint);
+            // 共用绘制：一体成型燕尾箭头 + 柔和 glow + 核心实色（P3-3 提取）
+            paintClassicArrowBody(canvas, centerX, centerY, rightMirrored, alpha, edgeColor);
 
             // effect=2 高亮闪烁（2 个箭头取 0/1 交替）
             if (effect == 2) {
@@ -476,6 +461,32 @@ public final class TurnSignalOverlayView extends View {
     }
 
     /**
+     * 【P3-3 提取】一体成型燕尾箭头本体绘制（两方法共用）：
+     * 构建连续 Path → 外层柔和 glow（大半径低透明度，灯珠光晕）→ 核心实色（带轻光晕）。
+     * alpha / edgeColor 由调用方决定：动态箭头乘 effectIntensity，静态箭头恒定亮度。
+     */
+    private void paintClassicArrowBody(Canvas canvas, float centerX, float centerY,
+            boolean rightMirrored, int alpha, int edgeColor) {
+        float headW = 26f * density * sizeFactor;   // 头长
+        float headH = 36f * density * sizeFactor;   // 头高
+        float barL = 16f * density * sizeFactor;    // 杆长
+        float barW = 13f * density * sizeFactor;    // 杆宽
+        buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
+
+        // 外层柔和 glow（灯珠光晕质感：大半径低透明度）
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(Math.round(alpha * 0.18f),
+                Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
+        paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
+        canvas.drawPath(path, paint);
+
+        // 核心实色（带轻光晕，边缘不锐利）
+        paint.setShadowLayer(6f * density * sizeFactor, 0, 0, edgeColor);
+        paint.setColor(edgeColor);
+        canvas.drawPath(path, paint);
+    }
+
+    /**
      * 【2026-08-04 用户新增·实车】静态箭头：复用一体成型燕尾箭头造型（B 版），
      * 但完全无动态 —— 恒定亮度（不随 phase/intensity 变化）、无白闪、无呼吸/流动。
      * 实车场景：按方向点亮后静止显示，干净利落；同时上层动画循环被 shape!=4 条件停掉，不白耗 CPU。
@@ -484,33 +495,17 @@ public final class TurnSignalOverlayView extends View {
     private void drawStaticArrow(Canvas canvas, boolean rightMirrored,
             float firstCenter, float centerY, float spacing,
             float halfWidth, float halfHeight, float density, int baseAlpha) {
-        float headW = 26f * density * sizeFactor;   // 与 B 传统箭头同尺寸
-        float headH = 36f * density * sizeFactor;
-        float barL = 16f * density * sizeFactor;
-        float barW = 13f * density * sizeFactor;
-        for (int i = 0; i < 1; i++) {
-            float centerX = rightMirrored
-                    ? firstCenter - i * spacing
-                    : firstCenter + i * spacing;
-            // 静态：所有箭头同一恒定亮度，不乘 effectIntensity，不参与相位动画
-            int alpha = Math.max(18, baseAlpha);
-            int edgeColor = Color.argb(alpha,
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
+        // 【P3-1 简化】静态箭头每侧仅 1 个（用户确认），i 恒为 0 → 直接取 firstCenter；
+        // spacing / halfWidth / halfHeight 未使用 —— 保留签名以便未来恢复双箭头时与 drawClassicArrow 对称。
+        float centerX = firstCenter;
+        // 静态：恒定亮度，不乘 effectIntensity，不参与相位动画
+        int alpha = Math.max(18, baseAlpha);
+        int edgeColor = Color.argb(alpha,
+                Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor));
 
-            buildClassicArrowPath(centerX, centerY, headW, headH, barL, barW, rightMirrored);
+        // 共用绘制：一体成型燕尾箭头 + 柔和 glow + 核心实色（P3-3 提取）
+        paintClassicArrowBody(canvas, centerX, centerY, rightMirrored, alpha, edgeColor);
 
-            // 外层柔和 glow（恒定）
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(Math.round(alpha * 0.18f),
-                    Color.red(renderColor), Color.green(renderColor), Color.blue(renderColor)));
-            paint.setShadowLayer(14f * density * sizeFactor, 0, 0, edgeColor);
-            canvas.drawPath(path, paint);
-
-            // 核心实色（恒定）
-            paint.setShadowLayer(6f * density * sizeFactor, 0, 0, edgeColor);
-            paint.setColor(edgeColor);
-            canvas.drawPath(path, paint);
-        }
         paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
     }
