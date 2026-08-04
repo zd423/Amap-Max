@@ -70,7 +70,7 @@ public final class AppPrefs {
     // 【2026-08-03 用户明确要求】透明度默认 100、尺寸 100、垂直位置 40%、左右内缩 38%、左侧内缩 30%
     public static final int  DEFAULT_TURN_SIGNAL_COLOR          = 0xFF35E889; // 荧光青绿
     public static final int  DEFAULT_TURN_SIGNAL_EFFECT         = 2;          // 0..5，2 = 流动追光
-    public static final int  DEFAULT_TURN_SIGNAL_SHAPE          = 0;          // 0..3，0 = V形箭头（3 = 传统箭头）
+    public static final int  DEFAULT_TURN_SIGNAL_SHAPE          = 0;          // 0..4，0 = V形箭头（3 = 传统箭头，4 = 静态箭头）
     public static final int  DEFAULT_TURN_SIGNAL_ALPHA          = 100;        // 0..100 %（用户指定默认 100）
     public static final int  DEFAULT_TURN_SIGNAL_SIZE           = 100;        // 40..160 %（用户指定默认 100）
     public static final int  DEFAULT_TURN_SIGNAL_TOP            = 40;         // 8..92 % 垂直中心（用户指定默认 40）

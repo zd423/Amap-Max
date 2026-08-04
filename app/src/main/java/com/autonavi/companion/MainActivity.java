@@ -638,7 +638,7 @@ public class MainActivity extends Activity {
         effectBg.setCornerRadius(dp(6));
         effectBg.setStroke(dp(1), 0xFFBFDBFE);
         turnEffectValue.setBackground(effectBg);
-        turnEffectValue.setText(turnEffectName(AppPrefs.getTurnSignalEffect(this)));
+        refreshTurnEffectLabel();
         turnEffectValue.setOnClickListener(v -> showTurnEffectDialog());
         LinearLayout.LayoutParams effectValueLp = new LinearLayout.LayoutParams(-2, -2);
         effectValueLp.setMarginStart(dp(4));
@@ -806,14 +806,26 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private void refreshTurnEffectLabel() {
+        if (turnEffectValue == null) return;
+        // 【P2-2 修复】shape==4（静态箭头）时效果不生效，值文本追加提示并置灰
+        boolean staticShape = AppPrefs.getTurnSignalShape(this) == 4;
+        turnEffectValue.setText(turnEffectName(AppPrefs.getTurnSignalEffect(this))
+                + (staticShape ? "（静态箭头无效果）" : ""));
+        turnEffectValue.setTextColor(staticShape ? Color.GRAY : 0xFF2563EB);
+    }
+
     private void showTurnEffectDialog() {
         int current = AppPrefs.getTurnSignalEffect(this);
+        boolean staticShape = AppPrefs.getTurnSignalShape(this) == 4;
         iosAlertBuilder()
-                .setTitle("转向箭头动画特效")
+                .setTitle(staticShape ? "转向箭头动画特效（静态箭头无效果）" : "转向箭头动画特效")
                 .setSingleChoiceItems(TURN_EFFECT_NAMES, current, (dialog, which) -> {
                     saveTurnSignalInt(AppPrefs.KEY_TURN_SIGNAL_EFFECT, which);
                     if (turnEffectValue != null) {
-                        turnEffectValue.setText(turnEffectName(which));
+                        turnEffectValue.setText(turnEffectName(which)
+                                + (staticShape ? "（静态箭头无效果）" : ""));
+                        turnEffectValue.setTextColor(staticShape ? Color.GRAY : 0xFF2563EB);
                     }
                     notifyTurnSignalChanged();
                     sendTurnSignalPreview("hazard");
@@ -832,6 +844,7 @@ public class MainActivity extends Activity {
                     if (turnShapeValue != null) {
                         turnShapeValue.setText(turnShapeName(which));
                     }
+                    refreshTurnEffectLabel();
                     notifyTurnSignalChanged();
                     sendTurnSignalPreview("hazard");
                     dialog.dismiss();

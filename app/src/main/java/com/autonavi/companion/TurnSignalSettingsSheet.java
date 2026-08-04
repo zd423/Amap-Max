@@ -188,9 +188,8 @@ public final class TurnSignalSettingsSheet {
         appearance.addView(separator());
         LinearLayout effectRow = rowLabel("动画特效");
         effectValue = new TextView(activity);
-        effectValue.setText(effectName(AppPrefs.getTurnSignalEffect(activity)));
+        refreshEffectLabel();
         effectValue.setTextSize(15f);
-        effectValue.setTextColor(IOS_BLUE);
         effectRow.addView(effectValue, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
         effectRow.addView(chevron());
         effectRow.setClickable(true);
@@ -559,15 +558,23 @@ public final class TurnSignalSettingsSheet {
         activity.sendTurnSignalPreview(dir);
     }
 
+    private void refreshEffectLabel() {
+        if (effectValue == null) return;
+        // 【P2-2 修复】shape==4（静态箭头）时效果不生效，值文本追加提示并置灰
+        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == 4;
+        effectValue.setText(effectName(AppPrefs.getTurnSignalEffect(activity))
+                + (staticShape ? "（静态箭头无效果）" : ""));
+        effectValue.setTextColor(staticShape ? Color.GRAY : IOS_BLUE);
+    }
+
     private void showEffectSheet() {
         int cur = AppPrefs.getTurnSignalEffect(activity);
+        boolean staticShape = AppPrefs.getTurnSignalShape(activity) == 4;
         AlertDialog.Builder b = new AlertDialog.Builder(activity, R.style.IosAlert);
-        b.setTitle("动画特效");
+        b.setTitle(staticShape ? "动画特效（静态箭头无效果）" : "动画特效");
         b.setSingleChoiceItems(TURN_EFFECT_NAMES, cur, (d, which) -> {
             saveInt(AppPrefs.KEY_TURN_SIGNAL_EFFECT, which);
-            if (effectValue != null) {
-                effectValue.setText(effectName(which));
-            }
+            refreshEffectLabel();
             activity.notifyTurnSignalChanged();
             preview("hazard");
             d.dismiss();
@@ -590,6 +597,7 @@ public final class TurnSignalSettingsSheet {
             if (shapeValue != null) {
                 shapeValue.setText(shapeName(which));
             }
+            refreshEffectLabel();
             activity.notifyTurnSignalChanged();
             preview("hazard");
             d.dismiss();

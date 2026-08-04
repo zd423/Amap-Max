@@ -43,7 +43,7 @@ public final class TurnSignalOverlayView extends View {
     private int color = 0xFF35E889;
     private int renderColor = 0xFF35E889;       // 实际绘制色（=用户选择色；转向不做夜间调光）
     private int effect;                         // 0-5
-    private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头 3=传统箭头(用户新增)
+    private int shape;                          // 0=V形箭头 1=流水灯带(奥迪) 2=实心圆头 3=传统箭头 4=静态箭头(用户新增)
     private float alphaFactor = 0.62f;          // 0.15 ~ 1.0
     private float sizeFactor = 1.0f;            // 0.6 ~ 1.8
     private float topFactor = 0.50f;            // 0.08 ~ 0.92

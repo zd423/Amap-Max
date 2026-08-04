@@ -27,10 +27,10 @@
 -renamesourcefileattribute SourceFile
 
 # ---- 发布版裁剪日志（减小 dex + 消除字符串），不影响控制流 ----
+# 【2026-08-04 P2-1 修正】仅裁剪 d/i/v；w/e（警告/错误）必须保留——
+# 虚拟副屏 display id 漂移等静默失败全靠 Log.w/e 排查，全裁则无从下手。
 -assumenosideeffects class android.util.Log {
     public static int d(...);
     public static int i(...);
     public static int v(...);
-    public static int w(...);
-    public static int e(...);
 }

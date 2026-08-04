@@ -679,6 +679,7 @@ public class OverlayService extends Service {
             for (Display display : displays) {
                 if (display != null && display.getDisplayId() == preferredDisplayId) return display;
             }
+            Log.w(TAG, "cluster display id=" + preferredDisplayId + " not found, count=" + displays.length);
             return null;
         }
         Display[] presentationDisplays = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
