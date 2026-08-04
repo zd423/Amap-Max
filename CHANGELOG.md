@@ -2,6 +2,14 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-04 修复夜间模式悬浮窗无变暗效果（v1.8.13 / 1840）
+
+实车反馈「夜间模式下悬浮窗实际还是白色的，夜间效果没生效」。根因：悬浮窗背景透明度硬编码 `opacity=0`（全透明），`nightPaletteBg` 的夜间纯黑背景色被 `withAlpha(_, 0)` 完全抹掉；文字白天近白（0xFFE8EAED）/夜间纯白（0xFFFFFFFF）又几乎无差别 → 夜间模式视觉上零变化（透明底 + 白字）。
+
+- **修复**：`OverlayService` 三处背景（`buildPanel` / `createMainPanelBackground` / `createClusterPanelBackground`）`opacity = 0` → `isNightMode() ? 85 : 0` —— 夜间模式悬浮窗呈现 **85% 深色底（0xFF0D0D0D 纯黑 @ 85%）**，配合原有夜间白字 + 红绿灯 ×0.70 暗化，夜间变暗效果肉眼可见；**白天保持透明悬浮不变**（不影响既有观感）。
+- **生效链路**：文字模式切换（跟随系统/强制白天/强制夜间）→ `ACTION_OVERLAY_STYLE_CHANGED` → 悬浮窗重建 → 重读夜间判断 → 新背景立即生效；系统 uiMode 变化 → `ACTION_CONFIGURATION_CHANGED` → 同样重建。
+- **提醒**：实车若车机系统深色模式不自动切换，请在 App「悬浮窗设置 → 文字模式」选**强制夜间**以保证生效。
+
 ## 2026-08-04 修复转向方向误判闪现：打左闪右 / 打右闪左（v1.8.12 / 1839）
 
 实车反馈「打左转 HUD 右转会闪现（随后灭）、打右闪左」。根因在 `AdayoTurnSignalMonitor` 的方向判定，与渲染无关：

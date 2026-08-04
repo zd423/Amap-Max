@@ -705,7 +705,8 @@ public class OverlayService extends Service {
         int padBottom = scaledDp(2, scale);
         card.setPadding(padH, padTop, padH, padBottom);
         GradientDrawable bg = new GradientDrawable();
-        int opacity = 0;
+        // 【1840 修复】夜间模式给悬浮窗深色底（可见变暗），白天保持透明悬浮不变
+        int opacity = isNightMode() ? 85 : 0;
         bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         bg.setCornerRadius(scaledDp(12, scale));
         card.setBackground(bg);
@@ -1399,7 +1400,8 @@ public class OverlayService extends Service {
     private GradientDrawable createMainPanelBackground() {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(14));
-        int opacity = 0;
+        // 【1840 修复】夜间模式深色底可见，白天保持透明悬浮
+        int opacity = isNightMode() ? 85 : 0;
         bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
@@ -1407,7 +1409,8 @@ public class OverlayService extends Service {
     private GradientDrawable createClusterPanelBackground() {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(clusterDp(14));
-        int opacity = 0;
+        // 【1840 修复】夜间模式深色底可见，白天保持透明悬浮
+        int opacity = isNightMode() ? 85 : 0;
         bg.setColor(AppPrefs.withAlpha(nightPaletteBg(0), opacity));
         return bg;
     }
