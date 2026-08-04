@@ -2,6 +2,13 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-04 修复设置页输入框夜间仍为白底（v1.8.14 / 1841）
+
+模拟器实测发现：App 自身设置页（悬浮窗显示位置）的百分比输入框在夜间模式下仍是刺眼白底——其背景用了固定浅灰 drawable `R.drawable.ios_edit_bg`（`#F2F2F7`），不随夜间变化；而同页的卡片/文字/开关都靠 `isDarkMode()` 动态适配，唯独输入框漏了。
+
+- **修复**：`MainActivity.overlayScaleRow` 去掉固定 `setBackgroundResource(R.drawable.ios_edit_bg)`，改为根据 `isDarkMode()` 动态生成圆角背景——夜间 `#2D2D2D` 深灰底 + 白字、白天 `#F2F2F7` 浅灰底，并补回原 drawable 的 `10/6dp` padding。
+- **范围**：仅 `overlayScaleRow` 主屏/副屏悬浮窗缩放输入框（设置页唯一一处 EditText）；`ios_edit_bg.xml` 已不再被引用（保留未删，属改动产生的孤儿资源）。
+
 ## 2026-08-04 修复夜间模式悬浮窗无变暗效果（v1.8.13 / 1840）
 
 实车反馈「夜间模式下悬浮窗实际还是白色的，夜间效果没生效」。根因：悬浮窗背景透明度硬编码 `opacity=0`（全透明），`nightPaletteBg` 的夜间纯黑背景色被 `withAlpha(_, 0)` 完全抹掉；文字白天近白（0xFFE8EAED）/夜间纯白（0xFFFFFFFF）又几乎无差别 → 夜间模式视觉上零变化（透明底 + 白字）。

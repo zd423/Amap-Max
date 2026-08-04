@@ -1813,7 +1813,12 @@ public class MainActivity extends Activity {
         input.setSingleLine(true);
         input.setMinWidth(dp(56));
         input.setMaxWidth(dp(72));
-        input.setBackgroundResource(R.drawable.ios_edit_bg);
+        input.setPadding(dp(10), dp(6), dp(10), dp(6));
+        // 夜间跟随：深色圆角底 / 白天浅灰圆角底（原 ios_edit_bg 固定浅色，夜间刺眼）
+        android.graphics.drawable.GradientDrawable editBg = new android.graphics.drawable.GradientDrawable();
+        editBg.setColor(isDarkMode() ? 0xFF2D2D2D : 0xFFF2F2F7);
+        editBg.setCornerRadius(dp(8));
+        input.setBackground(editBg);
         input.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 try {
