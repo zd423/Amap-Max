@@ -369,7 +369,7 @@ public final class AppPrefs {
         return clamp(v, MIN_SAFE_LEFT, MAX_SAFE_LEFT);
     }
 
-    /** 一次性迁移：旧版默认 safe_left=34（1/3 固定仪表区避让设计），新版取消该设计、默认 0。
+    /** 一次性迁移：旧版默认 safe_left=34（1/3 固定仪表区避让设计），新版取消该设计、回落 DEFAULT_SAFE_LEFT（30）。
      *  仅当存储值恰为旧默认 34 时清除（视为从未手动调整过）；手动调过的非 34 值保留。 */
     public static void migrateSafeLeftIfLegacyDefault(Context context) {
         if (context == null) return;
