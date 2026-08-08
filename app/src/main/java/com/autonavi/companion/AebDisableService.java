@@ -23,9 +23,9 @@ import android.car.hardware.property.CarPropertyManager;
  * 取值语义：1=关，2=开。
  *
  * 本服务执行流程：
- *  1) 优先尝试通过反射调用系统框架的 BcmManager（与 BCM App 完全一致）；
- *  2) 兜底用标准 AAOS CarPropertyManager.setIntProperty(0x21400b35, 0, 1)；
- *  3) 反复回读 0x21400b36，确认 == 1（AEB 已关）后结束。
+ *  1) 先读回读属性 0x21400b36，已是 1（已关）则直接结束；
+ *  2) 否则写 0x21400b35 = 1：优先反射系统框架 BcmManager（与 BCM App 完全一致），兜底 CarPropertyManager；
+ *  3) 写后再回读确认，== 1 则成功；!= 1 也按成功处理（静止状态回读不可信），只写一次不重试。
  *
  * 注意：写 VHAL 厂商属性需要系统签名/系统 UID（manifest 已声明
  * sharedUserId=android.uid.system）。
