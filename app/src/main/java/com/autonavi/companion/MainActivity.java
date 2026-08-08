@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
     private LinearLayout pageContent;          // 右侧当前页内容（切换时重建）
     private final java.util.ArrayList<TextView> sidebarItems = new java.util.ArrayList<>();
     private int currentPage = 0;
-    private static final String[] SIDEBAR_TITLES = {"通用设置", "悬浮窗口", "副屏设置", "极狐设置"};
+    private static final String[] SIDEBAR_TITLES = {"通用设置", "悬浮窗口", "极狐设置"};
     // 极狐设置二级菜单子页：0=菜单，1=关闭AEB，2=极狐转向
     private int arcFoxSubPage = 0;
 
@@ -263,7 +263,7 @@ public class MainActivity extends Activity {
     private void showPage(int index) {
         currentPage = index;
         // 离开极狐设置时重置二级菜单，下次进入显示菜单而非上次子页
-        if (index != 3) {
+        if (index != 2) {
             arcFoxSubPage = 0;
         }
         pageContent.removeAllViews();
@@ -274,14 +274,12 @@ public class MainActivity extends Activity {
                 addActionButtons(pageContent, false);
                 addBehaviorControls(pageContent);
                 break;
-            case 1: // 悬浮窗口
+            case 1: // 悬浮窗口（含副屏设置，2026-08-08 整合）
                 addScaleControls(pageContent);
                 addOverlayContentControls(pageContent);
-                break;
-            case 2: // 副屏设置
                 addClusterMirrorControls(pageContent);
                 break;
-            case 3: // 极狐设置（二级菜单）
+            case 2: // 极狐设置（二级菜单）
                 showArcfoxPage(pageContent);
                 break;
             default:
@@ -322,7 +320,7 @@ public class MainActivity extends Activity {
         card.addView(sep(), sepLp());
         card.addView(listRow("极狐转向", buildTurnSummary(), () -> {
             arcFoxSubPage = 2;
-            showPage(3);
+            showPage(2);
         }), new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);

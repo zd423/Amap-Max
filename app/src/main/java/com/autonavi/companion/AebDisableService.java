@@ -266,16 +266,4 @@ public class AebDisableService extends Service {
     private SharedPreferences prefs() {
         return getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
     }
-
-    public static String getStatus(Context c) {
-        return c.getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString("aeb_status", "unknown");
-    }
-
-    public static long getLastRun(Context c) {
-        return c.getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getLong("aeb_last_run", 0L);
-    }
-
-    public static String getFailReason(Context c) {
-        return c.getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString("aeb_fail_reason", "");
-    }
 }
