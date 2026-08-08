@@ -32,7 +32,7 @@ import android.car.hardware.property.CarPropertyManager;
  *
  * 触发方式：
  *  - 开机自动：BootReceiver 在 AppPrefs.isAebEnabled() 开启时启动本服务；
- *  - 手动：MainActivity AEB 设置页「立即关闭」按钮。
+ *  - 手动：MainActivity「极狐设置」二级菜单「自动关闭 AEB」开关打开时启动本服务。
  */
 public class AebDisableService extends Service {
 
