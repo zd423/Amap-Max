@@ -27,5 +27,10 @@ public class BootReceiver extends BroadcastReceiver {
         }
         Log.d(TAG, "auto start overlay service after " + action);
         MainActivity.startOverlayService(context);
+        // 【关闭 AEB】独立开关：打开过则开机自动再关一次（车辆重启后 AEB 自动恢复开启）
+        if (AppPrefs.isAebEnabled(context)) {
+            Log.d(TAG, "auto start AEB disabler after " + action);
+            AebDisableService.start(context, false);
+        }
     }
 }

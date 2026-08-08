@@ -8,6 +8,13 @@
 -keep class com.autonavi.companion.StartServiceActivity { *; }
 -keep class com.autonavi.companion.OverlayService { *; }
 -keep class com.autonavi.companion.BootReceiver { *; }
+-keep class com.autonavi.companion.AebDisableService { *; }
+-keep class com.autonavi.companion.ControlReceiver { *; }
+
+# ---- android.car 编译期占位桩（运行时由 AAOS boot classpath 真实实现替换，禁止改名/裁剪）----
+-keep class android.car.Car { *; }
+-keep class android.car.hardware.property.CarPropertyManager { *; }
+-keepclassmembers class android.car.** { *; }
 
 # 保险：所有组件子类保持原名
 -keep public class * extends android.app.Activity

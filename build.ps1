@@ -2,7 +2,7 @@
 # AMapPlus Android Companion Build Script
 # ============================================================
 # Requires: JDK 8+, Android SDK, PowerShell 5.1+
-# Output: E:\Project\AMap\AMap\package\AMap_yy_dd_HH_mm.apk
+# Output: D:\OpenCode\AMap Max\AMap_src\package\AMap_yy_dd_HH_mm.apk
 # ============================================================
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +51,7 @@ $manifestXml  = [xml](Get-Content $manifest -Raw)
 $pkgName      = $manifestXml.manifest.package
 $versionCode  = $manifestXml.manifest.GetAttribute('android:versionCode')
 if (-not $versionCode) { $versionCode = '0' }
-$outApk    = "E:\Project\AMap\AMap\package\AMapMax_${pkgName}_${versionCode}_${ts}.apk"
+$outApk    = Join-Path $root "package\AMapMax_${pkgName}_${versionCode}_${ts}.apk"
 
 # ============================================================
 # Clean
@@ -93,7 +93,8 @@ Get-ChildItem -Recurse -File (Join-Path $root 'app\src\main\java') -Filter '*.ja
 Get-ChildItem -Recurse -File $genDir -Filter '*.java' | ForEach-Object { $srcFiles += $_.FullName }
 
 # Join into one line (space-separated) for .bat file
-$filesLine = $srcFiles -join ' '
+# 路径可能含空格（D:\OpenCode\AMap Max），每个文件单独加引号
+$filesLine = ($srcFiles | ForEach-Object { '"' + $_ + '"' }) -join ' '
 Write-Host "  source files: $($srcFiles.Count), filesLine length: $($filesLine.Length)"
 
 # JDK 17 requires --release 8 (cannot use -source 8 -target 8)
@@ -138,8 +139,9 @@ $classFiles = Get-ChildItem -Recurse -File $classesDir -Filter '*.class' | ForEa
 Write-Host "  class files: $($classFiles.Count)"
 
 # 与 javac 相同的 bat 执行方式，避免 PowerShell 参数转义问题
+# 路径可能含空格（D:\OpenCode\AMap Max），class 文件列表逐个加引号
 $javaBin = Join-Path $env:JAVA_HOME 'bin'
-$r8Cmd = '"' + (Join-Path $javaBin 'java.exe') + '" -cp "' + $r8Jar + '" com.android.tools.r8.R8 --release --pg-conf "' + $proguardRules + '" --lib "' + $androidJar + '" --output "' + $dexDir + '" ' + ($classFiles -join ' ')
+$r8Cmd = '"' + (Join-Path $javaBin 'java.exe') + '" -cp "' + $r8Jar + '" com.android.tools.r8.R8 --release --pg-conf "' + $proguardRules + '" --lib "' + $androidJar + '" --output "' + $dexDir + '" ' + (($classFiles | ForEach-Object { '"' + $_ + '"' }) -join ' ')
 $r8BatLines = @(
     '@echo off',
     $r8Cmd

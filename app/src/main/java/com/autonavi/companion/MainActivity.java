@@ -80,7 +80,9 @@ public class MainActivity extends Activity {
     private LinearLayout pageContent;          // 右侧当前页内容（切换时重建）
     private final java.util.ArrayList<TextView> sidebarItems = new java.util.ArrayList<>();
     private int currentPage = 0;
-    private static final String[] SIDEBAR_TITLES = {"通用设置", "悬浮窗口", "副屏设置", "极狐转向"};
+    private static final String[] SIDEBAR_TITLES = {"通用设置", "悬浮窗口", "副屏设置", "极狐设置"};
+    // 极狐设置二级菜单子页：0=菜单，1=关闭AEB，2=极狐转向
+    private int arcFoxSubPage = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -260,6 +262,10 @@ public class MainActivity extends Activity {
     /** 切换右侧页面并刷新侧边栏选中态 */
     private void showPage(int index) {
         currentPage = index;
+        // 离开极狐设置时重置二级菜单，下次进入显示菜单而非上次子页
+        if (index != 3) {
+            arcFoxSubPage = 0;
+        }
         pageContent.removeAllViews();
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, 0, 0, dp(20));
@@ -275,8 +281,8 @@ public class MainActivity extends Activity {
             case 2: // 副屏设置
                 addClusterMirrorControls(pageContent);
                 break;
-            case 3: // 极狐转向
-                addTurnSignalEntry(pageContent);
+            case 3: // 极狐设置（二级菜单）
+                showArcfoxPage(pageContent);
                 break;
             default:
                 addActionButtons(pageContent, false);
@@ -286,6 +292,42 @@ public class MainActivity extends Activity {
         if (contentScroll != null) {
             contentScroll.scrollTo(0, 0);
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 极狐设置二级菜单：0=菜单，1=关闭AEB，2=极狐转向
+    // ══════════════════════════════════════════════════════════════════
+
+    private void showArcfoxPage(LinearLayout parent) {
+        if (arcFoxSubPage == 2) {
+            addTurnSignalEntry(parent);
+        } else {
+            addArcfoxMenu(parent);
+        }
+    }
+
+    /** 极狐设置二级菜单页：自动关闭AEB（直接开关）+ 极狐转向（入口） */
+    private void addArcfoxMenu(LinearLayout parent) {
+        parent.addView(sectionHeader("极狐设置"), new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout card = iosCard();
+        card.setPadding(dp(16), dp(4), dp(16), dp(4));
+
+        card.addView(switchRow("自动关闭 AEB", AppPrefs.isAebEnabled(this), (s, checked) -> {
+            AppPrefs.setAebEnabled(this, checked);
+            if (checked) {
+                AebDisableService.start(this, true);
+            }
+        }), new LinearLayout.LayoutParams(-1, -2));
+        card.addView(sep(), sepLp());
+        card.addView(listRow("极狐转向", buildTurnSummary(), () -> {
+            arcFoxSubPage = 2;
+            showPage(3);
+        }), new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(12));
+        parent.addView(card, lp);
     }
 
     /** 侧边栏选中态：蓝底白字圆角胶囊 */

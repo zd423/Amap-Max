@@ -51,6 +51,13 @@ public final class AppPrefs {
     public static final String KEY_OVERSPEED_MILD_WARNING       = "overspeed_mild_warning";
     public static final String KEY_OVERSPEED_MEDIUM_WARNING     = "overspeed_medium_warning";
 
+    // ── AEB 关闭（极狐）──────────────────────────────────────────────
+    // 独立开关：打开后开机自动执行关 AEB；关闭则不执行。
+    // 语义：AEB 车辆重启后自动恢复开启，故开关开着时每次开机都要重关一次。
+    public static final String KEY_AEB_ENABLED                  = "aeb_enabled";
+    // 默认关闭：用户手动打开「自动关闭 AEB」开关后才生效
+    public static final boolean DEFAULT_AEB_ENABLED             = false;
+
     // ── 极狐转向 HUD（arcfox-turn-hud 移植）─────────────────────────────
     // 沿用原版 key 名，便于从 Navi-Link 迁移配置；存储位置统一到本 PREFS
     public static final String KEY_TURN_SIGNAL_ENABLED          = "turn_signal_overlay_enabled";
@@ -300,6 +307,18 @@ public final class AppPrefs {
     //  极狐转向 HUD 访问器（arcfox-turn-hud 移植）
     //  所有读取一律做 clamp，避免外部/脏数据写入导致绘制异常或 ANR
     // ═══════════════════════════════════════════════════════════════════════
+
+    public static boolean isAebEnabled(Context context) {
+        if (context == null) return false;
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_AEB_ENABLED, DEFAULT_AEB_ENABLED);
+    }
+
+    public static void setAebEnabled(Context context, boolean enabled) {
+        if (context == null) return;
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_AEB_ENABLED, enabled).apply();
+    }
 
     public static boolean isTurnSignalOverlayEnabled(Context context) {
         if (context == null) return false;

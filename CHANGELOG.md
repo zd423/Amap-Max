@@ -2,6 +2,20 @@
 
 本文档用于记录 AMap Companion 的更新日志。
 
+## 2026-08-08 集成关闭 AEB 功能 + 极狐设置二级菜单（v1.8.16 / 1843）
+
+将独立工具 App `AEB_Disabler` 的关闭 AEB 能力集成进 AMap Max：
+
+- **manifest**：加 `sharedUserId="android.uid.system"`（系统 UID）+ 3 个车辆权限（`WRITE_VEHICLE_PROPERTIES` / `MODIFY_VEHICLE_PROPERTIES` / `READ_VEHICLE_PROPERTIES`）；注册 `AebDisableService`（exported，intent-filter `com.autonavi.companion.START_AEB_DISABLE`）与 `ControlReceiver`（adb/脚本触发通道 `com.autonavi.companion.action.DISABLE_AEB`）。
+- **AebDisableService**：从 `com.aeb.disabler` 移植，双通道写 VHAL 关 AEB（优先反射 `BcmManager.setIntTransDataMessage("DeviceInfo", 0x21400b35, 0, 1)`，兜底 `CarPropertyManager.setIntProperty`），回读 `0x21400b36` 确认，状态写 prefs；写 VHAL 需要系统签名/系统 UID。
+- **android.car 编译期占位桩**：`android.car.Car` / `CarPropertyManager` 复制进源码树（真机由 AAOS boot classpath 真实实现替换），R8 加 keep 防改名。
+- **UI**：一级菜单「极狐转向」→「极狐设置」；点开右侧二级菜单页——`自动关闭 AEB`（直接开关）+ `极狐转向`（原设置入口）。
+- **独立 AEB 开关**：默认关闭（用户手动打开后才生效）；开关开 → 立即执行一次 + 以后每次开机/亮屏（BootReceiver）自动重关（车机重启后 AEB 自动恢复开启）；开关关 → 不执行。
+- **只写一次**：`MAX_RETRY=0`，双通道任一成功即算成功（静止状态回读不可信，不回读重试），失败立即停（与原工程 `-Writes 1` 产物一致）。
+- **build.ps1 修复**：源码路径含空格（`D:\OpenCode\AMap Max`）导致 javac/R8 失败 → 文件列表逐个加引号。
+- **验证**：模拟器 1300×900 全链路通过（系统 UID 授予、二级菜单、开关默认开/可切换落盘、服务执行写状态、无 crash）；AEB 实际写入需实车验证（模拟器非 AAOS）。
+- **⚠️ 实车注意**：加系统 UID 后须**先卸载旧版**（否则 `INSTALL_FAILED_UID_CHANGED`），旧 prefs 配置会丢。
+
 ## 2026-08-04 设置页全量夜间适配（v1.8.15 / 1842）
 
 1841 只修了百分比输入框，继续扫查发现设置页还有 **3 处固定浅色**未适配夜间：

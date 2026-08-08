@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.autonavi.companion"
-    android:versionCode="1842"
-    android:versionName="1.8.15">
+    android:versionCode="1843"
+    android:versionName="1.8.16"
+    android:sharedUserId="android.uid.system">
     <uses-sdk
         android:minSdkVersion="23"
         android:targetSdkVersion="31" />
@@ -20,6 +21,10 @@
            · 模拟器/调试机 → adb shell pm grant com.autonavi.companion android.permission.READ_LOGS
          未授予时 AdayoTurnSignalMonitor 会静默降级（logcat 读不到数据，不崩溃） -->
     <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- 【新增·关闭 AEB】写 VHAL 厂商属性需要系统 UID + 车辆属性权限（sharedUserId=android.uid.system） -->
+    <uses-permission android:name="android.permission.WRITE_VEHICLE_PROPERTIES" />
+    <uses-permission android:name="android.car.permission.MODIFY_VEHICLE_PROPERTIES" />
+    <uses-permission android:name="android.car.permission.READ_VEHICLE_PROPERTIES" />
 
     <application
         android:allowBackup="false"
@@ -54,6 +59,24 @@
                 <action android:name="com.autonavi.companion.START_OVERLAY_SERVICE" />
             </intent-filter>
         </service>
+        <!-- 【新增·关闭 AEB】写 VHAL 关 AEB，导出供第三方/脚本随时拉起 -->
+        <service
+            android:name=".AebDisableService"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.autonavi.companion.START_AEB_DISABLE" />
+            </intent-filter>
+        </service>
+        <!-- 【新增·关闭 AEB】adb/脚本手动触发通道 -->
+        <receiver
+            android:name=".ControlReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.autonavi.companion.action.DISABLE_AEB" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
