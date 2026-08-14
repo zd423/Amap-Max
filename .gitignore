@@ -17,3 +17,5 @@ amap/
 /shot*.png
 /导航.png
 /ui*.png*.idsig
+
+*.idsig
