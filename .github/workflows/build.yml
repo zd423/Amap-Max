@@ -5,6 +5,9 @@ on:
     branches: [ master, main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -39,3 +42,18 @@ jobs:
           name: AMapMax-apk
           path: package/*.apk
           if-no-files-found: error
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-${{ github.sha }}
+          name: AMapMax CI ${{ github.run_number }} (${{ github.sha }})
+          body: |
+            自动构建 APK。
+
+            - 构建号: ${{ github.run_number }}
+            - 提交: ${{ github.sha }}
+            - 分支: ${{ github.ref }}
+          files: package/*.apk
+          draft: false
+          prerelease: true
