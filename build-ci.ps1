@@ -77,8 +77,13 @@ $filesLine = ($srcFiles | ForEach-Object { '"' + $_ + '"' }) -join ' '
 $javacBin  = Join-Path $env:JAVA_HOME 'bin'
 $javacCmd = '"' + (Join-Path $javacBin 'javac.exe') + '" --release 8 -encoding UTF-8 -classpath "' + $androidJar + '" -d "' + $classesDir + '" ' + $filesLine
 Write-Host "  javac source files: $($srcFiles.Count)"
-& cmd.exe /c $javacCmd 2>&1 | Out-Host
-if ($LASTEXITCODE -ne 0) { throw "javac failed (exit $LASTEXITCODE)" }
+$tmpDir = Join-Path $env:TEMP 'amap-ci'
+New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+[System.IO.File]::WriteAllLines((Join-Path $tmpDir '_javac.bat'), @('@echo off', $javacCmd), [System.Text.Encoding]::ASCII)
+$javacProc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', (Join-Path $tmpDir '_javac.bat') -Wait -NoNewWindow -PassThru `
+    -RedirectStandardError (Join-Path $tmpDir 'javac_err.txt') `
+    -RedirectStandardOutput (Join-Path $tmpDir 'javac_out.txt')
+if ($javacProc.ExitCode -ne 0) { throw "javac failed (exit $($javacProc.ExitCode))" }
 
 $expected = Get-ChildItem -Recurse -File $classesDir -Filter '*.class' | Measure-Object | Select-Object -ExpandProperty Count
 if ($expected -eq 0) { throw 'javac produced no class files' }
@@ -91,8 +96,11 @@ Write-Host 'R8 (minify + dex)...'
 $classFiles = Get-ChildItem -Recurse -File $classesDir -Filter '*.class' | ForEach-Object { $_.FullName }
 $javaBin = Join-Path $env:JAVA_HOME 'bin'
 $r8Cmd = '"' + (Join-Path $javaBin 'java.exe') + '" -cp "' + $d8Jar + '" com.android.tools.r8.R8 --release --pg-conf "' + $proguardRules + '" --lib "' + $androidJar + '" --output "' + $dexDir + '" ' + (($classFiles | ForEach-Object { '"' + $_ + '"' }) -join ' ')
-& cmd.exe /c $r8Cmd 2>&1 | Out-Host
-if ($LASTEXITCODE -ne 0) { throw "R8 failed (exit $LASTEXITCODE)" }
+[System.IO.File]::WriteAllLines((Join-Path $tmpDir '_r8.bat'), @('@echo off', $r8Cmd), [System.Text.Encoding]::ASCII)
+$r8Proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', (Join-Path $tmpDir '_r8.bat') -Wait -NoNewWindow -PassThru `
+    -RedirectStandardError (Join-Path $tmpDir 'r8_err.txt') `
+    -RedirectStandardOutput (Join-Path $tmpDir 'r8_out.txt')
+if ($r8Proc.ExitCode -ne 0) { throw "R8 failed (exit $($r8Proc.ExitCode))" }
 
 $dexFile = Join-Path $dexDir 'classes.dex'
 if (-not (Test-Path $dexFile)) { throw 'classes.dex not found after R8' }
