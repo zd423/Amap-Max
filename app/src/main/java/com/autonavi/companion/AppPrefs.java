@@ -80,8 +80,8 @@ public final class AppPrefs {
     public static final int  DEFAULT_TURN_SIGNAL_SHAPE          = 0;          // 0..4，0 = V形箭头（3 = 传统箭头，4 = 静态箭头）
     public static final int  DEFAULT_TURN_SIGNAL_ALPHA          = 100;        // 0..100 %（用户指定默认 100）
     public static final int  DEFAULT_TURN_SIGNAL_SIZE           = 100;        // 40..160 %（用户指定默认 100）
-    public static final int  DEFAULT_TURN_SIGNAL_TOP            = 40;         // 8..92 % 垂直中心（用户指定默认 40）
-    public static final int  DEFAULT_TURN_SIGNAL_HORIZONTAL     = 38;         // 0..42 % 左右内缩（用户指定默认 38）
+    public static final int  DEFAULT_TURN_SIGNAL_TOP            = 54;         // 8..92 % 垂直中心（用户指定默认 54）
+    public static final int  DEFAULT_TURN_SIGNAL_HORIZONTAL     = 42;         // 0..42 % 左右内缩（用户指定默认 42）
     // 极狐转向总开关默认值：默认开启（true = 1）。
     // 【2026-08-03 用户明确要求】「极狐转向设置默认为 1」→ 装车即用，无需进设置手动开。
     // 行为代价（可接受）：默认开启时转向窗口常驻全屏悬浮窗 + 一条 logcat 读取线程，

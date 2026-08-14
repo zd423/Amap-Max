@@ -2297,7 +2297,7 @@ public class OverlayService extends Service {
     }
 
     private int getSavedClusterX() {
-        return AppPrefs.getClusterX(this, 600);
+        return AppPrefs.getClusterX(this, 610);
     }
 
     private int getSavedClusterY() {
