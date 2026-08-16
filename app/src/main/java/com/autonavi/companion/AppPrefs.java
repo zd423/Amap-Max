@@ -98,8 +98,8 @@ public final class AppPrefs {
     public static final int  MAX_TURN_SIGNAL_ALPHA              = 100;
     public static final int  MIN_TURN_SIGNAL_SIZE               = 40;
     public static final int  MAX_TURN_SIGNAL_SIZE               = 160;
-    public static final int  MIN_TURN_SIGNAL_TOP                = 8;
-    public static final int  MAX_TURN_SIGNAL_TOP                = 92;
+    public static final int  MIN_TURN_SIGNAL_TOP                = 50;        // 50..60 % 垂直中心（用户指定范围）
+    public static final int  MAX_TURN_SIGNAL_TOP                = 60;        // 50..60 % 垂直中心（用户指定范围）
     public static final int  MIN_TURN_SIGNAL_HORIZONTAL         = 0;
     public static final int  MAX_TURN_SIGNAL_HORIZONTAL         = 42;
     // 左侧内缩：默认 30%（用户指定默认 30，适配左驾 HUD 投影遮挡），0~45% 可调（高级选项）
